@@ -149,10 +149,10 @@ public class Lab_3_1_ChannelsAndBuffers {
      */
 
     // TODO 2.1 — create a method called ac2_copyWithStreams
-        private static long ac2_copyWithStreams(Path src, Path dst) throws IOException {
+    private static long ac2_copyWithStreams(Path src, Path dst) throws IOException {
         long start = System.nanoTime();
-        try (FileInputStream  in  = new FileInputStream(src.toFile());
-             FileOutputStream out = new FileOutputStream(dst.toFile())) {
+        try (FileInputStream in = new FileInputStream(src.toFile());
+                FileOutputStream out = new FileOutputStream(dst.toFile())) {
             byte[] buf = new byte[4 * 1024];
             int n;
             while ((n = in.read(buf)) != -1) {
@@ -163,12 +163,12 @@ public class Lab_3_1_ChannelsAndBuffers {
     }
 
     // TODO 2.2 — create a method called ac2_copyWithChannels
-        private static long ac2_copyWithChannels(Path src, Path dst) throws IOException {
+    private static long ac2_copyWithChannels(Path src, Path dst) throws IOException {
         long start = System.nanoTime();
-        try (FileChannel in  = FileChannel.open(src, StandardOpenOption.READ);
-             FileChannel out = FileChannel.open(dst, StandardOpenOption.CREATE,
-                                                     StandardOpenOption.WRITE,
-                                                     StandardOpenOption.TRUNCATE_EXISTING)) {
+        try (FileChannel in = FileChannel.open(src, StandardOpenOption.READ);
+                FileChannel out = FileChannel.open(dst, StandardOpenOption.CREATE,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.TRUNCATE_EXISTING)) {
             ByteBuffer buf = ByteBuffer.allocateDirect(64 * 1024);
             while (in.read(buf) != -1) {
                 buf.flip();
@@ -186,20 +186,20 @@ public class Lab_3_1_ChannelsAndBuffers {
         Path source = WORK_DIR.resolve("source.bin");
         Path dstStreams = WORK_DIR.resolve("dst_streams.bin");
         Path dstChannels = WORK_DIR.resolve("dst_channels.bin");
-        
+
         System.out.println(" generating " + (LARGE_FILE_SIZE / (1024 * 1024)) + "MB source file...");
         ac2_generateLargeFile(source);
         System.out.println(" source size: " + Files.size(source) + " bytes");
-        
+
         long streamMs = ac2_copyWithStreams(source, dstStreams);
         long channelMs = ac2_copyWithChannels(source, dstChannels);
-        
+
         System.out.println("\n FileInputStream/FileOutputStream (4KB buffer): " +
-        streamMs + " ms");
+                streamMs + " ms");
         System.out.println(" FileChannel + 64KB direct ByteBuffer: " + channelMs + "ms");
-        System.out.printf (" channel speedup: %.2fx%n",
-        (double) streamMs / channelMs);
-        
+        System.out.printf(" channel speedup: %.2fx%n",
+                (double) streamMs / channelMs);
+
         // Correctness check: both copies should produce identical file sizes.
         System.out.println("\n size check streams: " + Files.size(dstStreams));
         System.out.println(" size check channels: " + Files.size(dstChannels));
@@ -215,35 +215,48 @@ public class Lab_3_1_ChannelsAndBuffers {
      */
 
     // TODO 3.1 — create a method called ac3_copyWithTransferTo
+    private static long ac3_copyWithTransferTo(Path src, Path dst) throws IOException {
+        long start = System.nanoTime();
+        try (FileChannel in = FileChannel.open(src, StandardOpenOption.READ);
+                FileChannel out = FileChannel.open(dst, StandardOpenOption.CREATE,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.TRUNCATE_EXISTING)) {
+            long size = in.size();
+            long transferred = 0;
+            while (transferred < size) {
+                transferred += in.transferTo(transferred, size - transferred, out);
+            }
+        }
+        return (System.nanoTime() - start) / 1_000_000;
+    }
 
     private static void activity3() throws IOException {
         System.out.println("\n=== Activity 3: Zero-Copy with transferTo ===");
 
         // TODO 3.2 — uncomment the body below
-        // Path source = WORK_DIR.resolve("source.bin");
-        // Path dstChannels = WORK_DIR.resolve("dst_channels.bin");
-        // Path dstTransfer = WORK_DIR.resolve("dst_transfer.bin");
-        //
-        // // Regenerate the source if Activity 2 wasn't run in this session.
-        // if (!Files.exists(source) || Files.size(source) != LARGE_FILE_SIZE) {
-        // System.out.println(" generating " + (LARGE_FILE_SIZE / (1024 * 1024)) + "MB
-        // source file...");
-        // ac2_generateLargeFile(source);
-        // }
-        //
-        // // Run Activity 2's channel copy as the baseline for comparison.
-        // long channelMs = ac2_copyWithChannels(source, dstChannels);
-        // long transferMs = ac3_copyWithTransferTo(source, dstTransfer);
-        //
-        // System.out.println("\n FileChannel + 64KB direct ByteBuffer loop: " +
-        // channelMs + " ms");
-        // System.out.println(" FileChannel.transferTo (kernel-level copy): " +
-        // transferMs + " ms");
-        // System.out.printf (" transferTo speedup over buffered channels: %.2fx%n",
-        // (double) channelMs / Math.max(transferMs, 1));
-        //
-        // System.out.println("\n size check channels: " + Files.size(dstChannels));
-        // System.out.println(" size check transfer: " + Files.size(dstTransfer));
+        Path source = WORK_DIR.resolve("source.bin");
+        Path dstChannels = WORK_DIR.resolve("dst_channels.bin");
+        Path dstTransfer = WORK_DIR.resolve("dst_transfer.bin");
+        
+        // Regenerate the source if Activity 2 wasn't run in this session.
+        if (!Files.exists(source) || Files.size(source) != LARGE_FILE_SIZE) {
+        System.out.println(" generating " + (LARGE_FILE_SIZE / (1024 * 1024)) + "MB source file...");
+        ac2_generateLargeFile(source);
+        }
+        
+        // Run Activity 2's channel copy as the baseline for comparison.
+        long channelMs = ac2_copyWithChannels(source, dstChannels);
+        long transferMs = ac3_copyWithTransferTo(source, dstTransfer);
+        
+        System.out.println("\n FileChannel + 64KB direct ByteBuffer loop: " +
+        channelMs + " ms");
+        System.out.println(" FileChannel.transferTo (kernel-level copy): " +
+        transferMs + " ms");
+        System.out.printf (" transferTo speedup over buffered channels: %.2fx%n",
+        (double) channelMs / Math.max(transferMs, 1));
+        
+        System.out.println("\n size check channels: " + Files.size(dstChannels));
+        System.out.println(" size check transfer: " + Files.size(dstTransfer));
     }
 
     /*
@@ -274,7 +287,7 @@ public class Lab_3_1_ChannelsAndBuffers {
                     case "2" -> activity2();
 
                     // TODO 3.2 — uncomment the case below when Activity 3 is implemented
-                    // case "3" -> activity3();
+                    case "3" -> activity3();
 
                     case "q", "Q" -> {
                         cleanup();

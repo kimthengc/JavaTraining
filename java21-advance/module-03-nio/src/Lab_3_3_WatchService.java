@@ -1,9 +1,18 @@
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Scanner;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 
 public class Lab_3_3_WatchService {
 
@@ -20,7 +29,11 @@ public class Lab_3_3_WatchService {
 
     /** Uninterruptible sleep helper used by the helper threads. */
     private static void sleep(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** Creates (or clears) a per-activity subdirectory under WORK_DIR. */
@@ -29,7 +42,12 @@ public class Lab_3_3_WatchService {
         if (Files.exists(dir)) {
             try (var stream = Files.walk(dir)) {
                 stream.sorted((a, b) -> b.getNameCount() - a.getNameCount())
-                      .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
+                        .forEach(p -> {
+                            try {
+                                Files.deleteIfExists(p);
+                            } catch (IOException ignored) {
+                            }
+                        });
             }
         }
         Files.createDirectories(dir);
@@ -45,103 +63,222 @@ public class Lab_3_3_WatchService {
         try {
             Path target = watched.resolve("target.txt");
             sleep(200);
-            Files.writeString(target, "first content");       // ENTRY_CREATE
+            Files.writeString(target, "first content"); // ENTRY_CREATE
             sleep(300);
-            Files.writeString(target, "second content");      // ENTRY_MODIFY
+            Files.writeString(target, "second content"); // ENTRY_MODIFY
             sleep(300);
-            Files.deleteIfExists(target);                     // ENTRY_DELETE
-        } catch (IOException ignored) {}
+            Files.deleteIfExists(target); // ENTRY_DELETE
+        } catch (IOException ignored) {
+        }
     }
 
-
-    /* ========================================================================
-     *  Activity 1: Register a Watch, See Events
-     *  -------------------------------------------------------------------
-     *  Register a WatchService on a temp directory, let a helper thread
-     *  create/modify/delete a file, and print each event as it arrives.
-     *  First exposure to the take/pollEvents/reset lifecycle.
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Activity 1: Register a Watch, See Events
+     * -------------------------------------------------------------------
+     * Register a WatchService on a temp directory, let a helper thread
+     * create/modify/delete a file, and print each event as it arrives.
+     * First exposure to the take/pollEvents/reset lifecycle.
+     * ======================================================================
+     */
 
     // TODO 1.1 — create a method called ac1_runWatchLoop
+    private static void ac1_runWatchLoop(WatchService watcher, Path watched) throws InterruptedException {
+        while (running.get()) {
+            WatchKey key = watcher.poll(500, TimeUnit.MILLISECONDS);
+            if (key == null)
+                continue;
 
+            for (WatchEvent<?> event : key.pollEvents()) {
+                Path name = (Path) event.context();
+                System.out.println("  event: " + event.kind().name() + "  file: " + name);
+            }
+
+            // Critical: reset() re-arms the key. Miss this and no further events arrive.
+            boolean valid = key.reset();
+            if (!valid) {
+                System.out.println("  key no longer valid, exiting loop");
+                break;
+            }
+        }
+    }
 
     private static void activity1() throws IOException, InterruptedException {
         System.out.println("\n=== Activity 1: Register a Watch, See Events ===");
 
         // TODO 1.2 — uncomment the body below
-        // Path watched = freshActivityDir("activity1");
-        // System.out.println("  watching: " + watched);
-        //
-        // try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
-        //     watched.register(watcher,
-        //             StandardWatchEventKinds.ENTRY_CREATE,
-        //             StandardWatchEventKinds.ENTRY_MODIFY,
-        //             StandardWatchEventKinds.ENTRY_DELETE);
-        //
-        //     running.set(true);
-        //     Thread helper = new Thread(() -> ac1_helperThread(watched), "ac1-helper");
-        //     helper.setDaemon(true);
-        //     helper.start();
-        //
-        //     // Run the watch loop for ~2 seconds, enough for all three helper actions.
-        //     long deadline = System.currentTimeMillis() + 2000;
-        //     while (running.get() && System.currentTimeMillis() < deadline) {
-        //         ac1_runWatchLoop(watcher, watched);
-        //     }
-        //
-        //     running.set(false);
-        //     helper.join(500);
-        // }
+        Path watched = freshActivityDir("activity1");
+        System.out.println(" watching: " + watched);
+
+        try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+            watched.register(watcher,
+                    StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_MODIFY,
+                    StandardWatchEventKinds.ENTRY_DELETE);
+
+            running.set(true);
+            Thread helper = new Thread(() -> ac1_helperThread(watched), "ac1-helper");
+            helper.setDaemon(true);
+            helper.start();
+
+            // Run the watch loop for ~2 seconds, enough for all three helper actions.
+            long deadline = System.currentTimeMillis() + 2000;
+            while (running.get() && System.currentTimeMillis() < deadline) {
+                ac1_runWatchLoop(watcher, watched);
+            }
+
+            running.set(false);
+            helper.join(500);
+        }
     }
 
-
-    /* ========================================================================
-     *  Activity 2: You Watch Directories, Not Files
-     *  -------------------------------------------------------------------
-     *  Part A: try to register a WatchService on a file path, observe
-     *          NotDirectoryException.
-     *  Part B: re-register on the parent directory and filter events by
-     *          filename to achieve per-file watching.
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Activity 2: You Watch Directories, Not Files
+     * -------------------------------------------------------------------
+     * Part A: try to register a WatchService on a file path, observe
+     * NotDirectoryException.
+     * Part B: re-register on the parent directory and filter events by
+     * filename to achieve per-file watching.
+     * ======================================================================
+     */
 
     // TODO 2.1 — create a method called ac2_tryWatchFile
-
+    private static void ac2_tryWatchFile(Path file) throws IOException {
+        try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+            file.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
+            System.out.println("  registration succeeded (unexpected)");
+        } catch (NotDirectoryException e) {
+            System.out.println("  caught: " + e.getClass().getSimpleName());
+            System.out.println("  path:   " + e.getMessage());
+        }
+    }
 
     // TODO 2.2 — create a method called ac2_watchOneFile
+    private static void ac2_watchOneFile(Path target) throws IOException, InterruptedException {
+        Path parent = target.getParent();
+        Path targetName = target.getFileName();
+        Path sibling = parent.resolve("noise.txt");
 
+        try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+            parent.register(watcher, StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_MODIFY);
+
+            Thread helper = new Thread(() -> {
+                try {
+                    sleep(200);
+                    Files.writeString(sibling, "sibling-1"); // should be ignored
+                    sleep(200);
+                    Files.writeString(target, "target-1"); // should be reported
+                    sleep(200);
+                    Files.writeString(sibling, "sibling-2"); // should be ignored
+                    sleep(200);
+                    Files.writeString(target, "target-2"); // should be reported
+                } catch (IOException ignored) {
+                }
+            });
+            helper.setDaemon(true);
+            helper.start();
+
+            long deadline = System.currentTimeMillis() + 2000;
+            while (running.get() && System.currentTimeMillis() < deadline) {
+                WatchKey key = watcher.poll(200, TimeUnit.MILLISECONDS);
+                if (key == null)
+                    continue;
+
+                for (WatchEvent<?> event : key.pollEvents()) {
+                    Path name = (Path) event.context();
+                    if (name.equals(targetName)) {
+                        System.out.println("  [match]   " + event.kind().name() + "  " + name);
+                    } else {
+                        System.out.println("  [ignored] " + event.kind().name() + "  " + name);
+                    }
+                }
+                if (!key.reset())
+                    break;
+            }
+        }
+    }
 
     private static void activity2() throws IOException, InterruptedException {
         System.out.println("\n=== Activity 2: You Watch Directories, Not Files ===");
 
         // TODO 2.3 — uncomment the body below
-        // Path watched = freshActivityDir("activity2");
-        // Path target  = watched.resolve("target.txt");
-        // Files.writeString(target, "initial");
-        //
-        // System.out.println("\n--- Part A: try to watch a file directly ---");
-        // ac2_tryWatchFile(target);
-        //
-        // System.out.println("\n--- Part B: watch the parent, filter by filename ---");
-        // running.set(true);
-        // ac2_watchOneFile(target);
-        // running.set(false);
+        Path watched = freshActivityDir("activity2");
+        Path target = watched.resolve("target.txt");
+        Files.writeString(target, "initial");
+
+        System.out.println("\n--- Part A: try to watch a file directly ---");
+        ac2_tryWatchFile(target);
+
+        System.out.println("\n--- Part B: watch the parent, filter by filename ---");
+        running.set(true);
+        ac2_watchOneFile(target);
+        running.set(false);
     }
 
-
-    /* ========================================================================
-     *  Activity 3: Platform Semantics, One Save, Many Events
-     *  -------------------------------------------------------------------
-     *  Phase A: naive handler prints every ENTRY_MODIFY the OS delivers.
-     *           One logical save often fires two or three events.
-     *  Phase B: debounced handler collapses events for the same file inside
-     *           a 150ms window using a Map<Path, Instant>.
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Activity 3: Platform Semantics, One Save, Many Events
+     * -------------------------------------------------------------------
+     * Phase A: naive handler prints every ENTRY_MODIFY the OS delivers.
+     * One logical save often fires two or three events.
+     * Phase B: debounced handler collapses events for the same file inside
+     * a 150ms window using a Map<Path, Instant>.
+     * ======================================================================
+     */
 
     // TODO 3.1 — create a method called ac3_runNaiveLoop
+    private static void ac3_runNaiveLoop(WatchService watcher, long deadlineMs) throws InterruptedException {
+        System.out.println("  [naive handler] printing every ENTRY_MODIFY event:");
+        while (running.get() && System.currentTimeMillis() < deadlineMs) {
+            WatchKey key = watcher.poll(100, TimeUnit.MILLISECONDS);
+            if (key == null)
+                continue;
 
+            for (WatchEvent<?> event : key.pollEvents()) {
+                if (event.kind() == StandardWatchEventKinds.ENTRY_MODIFY) {
+                    Path name = (Path) event.context();
+                    System.out.println("    fired at " + Instant.now() + "  file: " + name);
+                }
+            }
+            if (!key.reset())
+                break;
+        }
+    }
 
     // TODO 3.2 — create a method called ac3_runDebouncedLoop
+    private static void ac3_runDebouncedLoop(WatchService watcher, long deadlineMs, long debounceMs)
+            throws InterruptedException {
 
+        System.out.println("  [debounced handler] collapsing events within " + debounceMs + "ms window:");
+        Map<Path, Instant> lastFired = new HashMap<>();
+
+        while (running.get() && System.currentTimeMillis() < deadlineMs) {
+            WatchKey key = watcher.poll(100, TimeUnit.MILLISECONDS);
+            if (key == null)
+                continue;
+
+            for (WatchEvent<?> event : key.pollEvents()) {
+                if (event.kind() != StandardWatchEventKinds.ENTRY_MODIFY)
+                    continue;
+
+                Path name = (Path) event.context();
+                Instant now = Instant.now();
+                Instant last = lastFired.get(name);
+
+                if (last == null || now.toEpochMilli() - last.toEpochMilli() >= debounceMs) {
+                    System.out.println("    fired at " + now + "  file: " + name);
+                    lastFired.put(name, now);
+                } else {
+                    // Inside window, suppress. Do not update timestamp, so the window
+                    // stays anchored to the first event in the burst.
+                }
+            }
+            if (!key.reset())
+                break;
+        }
+    }
 
     /**
      * Helper thread body for Activity 3. Writes to the target file three
@@ -158,56 +295,60 @@ public class Lab_3_3_WatchService {
             Files.writeString(target, "save-2");
             sleep(400);
             Files.writeString(target, "save-3");
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
     }
 
     private static void activity3() throws IOException, InterruptedException {
         System.out.println("\n=== Activity 3: Platform Semantics, One Save, Many Events ===");
 
         // TODO 3.3 — uncomment the body below
-        // Path watched = freshActivityDir("activity3");
-        // Path target  = watched.resolve("config.yaml");
-        // Files.writeString(target, "initial");
-        //
-        // // ----- Phase A: naive handler -----
-        // System.out.println("\n--- Phase A: naive handler ---");
-        // try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
-        //     watched.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
-        //
-        //     running.set(true);
-        //     Thread helperA = new Thread(() -> ac3_helperThread(target), "ac3-helper-naive");
-        //     helperA.setDaemon(true);
-        //     helperA.start();
-        //
-        //     long deadlineA = System.currentTimeMillis() + 2000;
-        //     ac3_runNaiveLoop(watcher, deadlineA);
-        //
-        //     running.set(false);
-        //     helperA.join(500);
-        // }
-        //
-        // // ----- Phase B: debounced handler -----
-        // System.out.println("\n--- Phase B: debounced handler (150ms window) ---");
-        // try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
-        //     watched.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
-        //
-        //     running.set(true);
-        //     Thread helperB = new Thread(() -> ac3_helperThread(target), "ac3-helper-debounced");
-        //     helperB.setDaemon(true);
-        //     helperB.start();
-        //
-        //     long deadlineB = System.currentTimeMillis() + 2000;
-        //     ac3_runDebouncedLoop(watcher, deadlineB, 150);
-        //
-        //     running.set(false);
-        //     helperB.join(500);
-        // }
+        Path watched = freshActivityDir("activity3");
+        Path target = watched.resolve("config.yaml");
+        Files.writeString(target, "initial");
+        
+        // ----- Phase A: naive handler -----
+        System.out.println("\n--- Phase A: naive handler ---");
+        try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+        watched.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
+        
+        running.set(true);
+        Thread helperA = new Thread(() -> ac3_helperThread(target),
+        "ac3-helper-naive");
+        helperA.setDaemon(true);
+        helperA.start();
+        
+        long deadlineA = System.currentTimeMillis() + 2000;
+        ac3_runNaiveLoop(watcher, deadlineA);
+        
+        running.set(false);
+        helperA.join(500);
+        }
+        
+        // ----- Phase B: debounced handler -----
+        System.out.println("\n--- Phase B: debounced handler (150ms window) ---");
+        try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
+        watched.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
+        
+        running.set(true);
+        Thread helperB = new Thread(() -> ac3_helperThread(target),
+        "ac3-helper-debounced");
+        helperB.setDaemon(true);
+        helperB.start();
+        
+        long deadlineB = System.currentTimeMillis() + 2000;
+        ac3_runDebouncedLoop(watcher, deadlineB, 150);
+        
+        running.set(false);
+        helperB.join(500);
+        }
     }
 
-
-    /* ========================================================================
-     *  Menu
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Menu
+     * ======================================================================
+     */
 
     public static void main(String[] args) throws IOException, InterruptedException {
         Files.createDirectories(WORK_DIR);
@@ -220,22 +361,25 @@ public class Lab_3_3_WatchService {
                 System.out.println(" 2) You Watch Directories, Not Files");
                 System.out.println(" 3) Platform Semantics, One Save, Many Events");
                 System.out.println(" q) Quit");
-                System.out.print  (" > ");
+                System.out.print(" > ");
 
                 String choice = in.hasNextLine() ? in.nextLine().trim() : "q";
 
                 switch (choice) {
                     // TODO 1.2 — uncomment the case below when Activity 1 is implemented
-                    // case "1" -> activity1();
+                    case "1" -> activity1();
 
                     // TODO 2.3 — uncomment the case below when Activity 2 is implemented
-                    // case "2" -> activity2();
+                    case "2" -> activity2();
 
                     // TODO 3.3 — uncomment the case below when Activity 3 is implemented
-                    // case "3" -> activity3();
+                    case "3" -> activity3();
 
-                    case "q", "Q" -> { cleanup(); return; }
-                    default       -> System.out.println("  unknown choice: " + choice);
+                    case "q", "Q" -> {
+                        cleanup();
+                        return;
+                    }
+                    default -> System.out.println("  unknown choice: " + choice);
                 }
             }
         }
@@ -248,9 +392,15 @@ public class Lab_3_3_WatchService {
             if (Files.exists(WORK_DIR)) {
                 try (var stream = Files.walk(WORK_DIR)) {
                     stream.sorted((a, b) -> b.getNameCount() - a.getNameCount())
-                          .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
+                            .forEach(p -> {
+                                try {
+                                    Files.deleteIfExists(p);
+                                } catch (IOException ignored) {
+                                }
+                            });
                 }
             }
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
     }
 }

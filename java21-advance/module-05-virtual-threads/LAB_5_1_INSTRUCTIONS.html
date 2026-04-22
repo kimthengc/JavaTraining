@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab 5.1 — Virtual Threads in Practice</title>
+<style>
+:root {
+    --accent:        #0E7C86;
+    --accent-soft:   #2EB8B8;
+    --accent-deeper: #0A5E66;
+    --accent-tint:   #E8F6F6;
+    --accent-faint:  #F3FAFB;
+
+    --text-body:     #1F2937;
+    --text-muted:    #6B7280;
+    --border-soft:   #E5E7EB;
+    --code-bg:       #FAFBFC;
+
+    --syn-keyword:  #1E40AF;
+    --syn-type:     #0E7C86;
+    --syn-string:   #15803D;
+    --syn-comment:  #94A3B8;
+    --syn-number:   #7C3AED;
+    --syn-annot:    #BE185D;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; }
+
+/* Fixed Copilot-gradient bar at the top of every page */
+body::before {
+    content: "";
+    display: block;
+    height: 3px;
+    width: 100%;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+}
+
+body {
+    font-family: "Segoe UI", "Open Sans", "Helvetica", "Arial", sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--text-body);
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem 4rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: "Segoe UI Semibold", "Segoe UI", "Open Sans", sans-serif;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1.3;
+    margin-top: 1.6em;
+    margin-bottom: 0.5em;
+}
+h1 {
+    font-size: 2em;
+    margin-top: 0;
+    padding-bottom: 0.4em;
+    position: relative;
+}
+h1::after {
+    content: "";
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 0.4em;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    opacity: 0.8;
+}
+h2 { font-size: 1.4em; border-bottom: 1px solid var(--border-soft); padding-bottom: 0.2em; }
+h3 { font-size: 1.1em; color: var(--accent-deeper); }
+
+p { margin: 0.7em 0; }
+
+a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+a:hover { border-bottom-style: solid; color: var(--accent-deeper); }
+
+ul, ol { margin: 0.7em 0; padding-left: 1.8em; }
+li { margin: 0.3em 0; }
+ul li::marker { color: var(--accent); }
+ol li::marker { color: var(--accent); font-weight: 600; }
+
+strong { color: #111827; font-weight: 600; }
+
+:not(pre) > code {
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    font-size: 0.88em;
+    background: var(--accent-tint);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent-deeper);
+}
+
+.code-wrap {
+    position: relative;
+    margin: 1.2em 0;
+    background: var(--code-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    overflow: hidden;
+    padding-left: 3px;
+}
+.code-wrap::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+}
+
+.code-wrap pre {
+    margin: 0;
+    padding: 0.9em 1em;
+    padding-right: 5em;
+    font-size: 13.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    color: var(--text-body);
+    white-space: pre;
+}
+.code-wrap pre code {
+    font-family: inherit;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    padding: 4px 12px;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: #fff;
+    border: 1px solid var(--accent-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    opacity: 0.8;
+}
+.copy-btn:hover  { opacity: 1; background: var(--accent-tint); }
+.copy-btn:active { transform: translateY(1px); }
+.copy-btn.copied { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.tok-kw  { color: var(--syn-keyword); font-weight: 600; }
+.tok-ty  { color: var(--syn-type); }
+.tok-str { color: var(--syn-string); }
+.tok-cmt { color: var(--syn-comment); font-style: italic; }
+.tok-num { color: var(--syn-number); }
+.tok-ann { color: var(--syn-annot); }
+
+blockquote {
+    border-left: 4px solid var(--accent-soft);
+    background: var(--accent-faint);
+    color: #374151;
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    font-style: italic;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 0.93em;
+}
+th, td {
+    border: 1px solid var(--border-soft);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: var(--accent);
+    color: #fff;
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-weight: 600;
+}
+tr:nth-child(even) td { background: var(--accent-faint); }
+
+hr { border: none; border-top: 1px solid var(--border-soft); margin: 2em 0; }
+
+img { max-width: 100%; height: auto; }
+
+@media print {
+    body::before { display: none; }
+    body { max-width: none; padding: 1cm; font-size: 11pt; }
+    .copy-btn { display: none; }
+    .code-wrap { page-break-inside: avoid; }
+    h1, h2, h3 { page-break-after: avoid; }
+    a { border-bottom: none; color: inherit; }
+}
+</style>
+</head>
+<body>
+<h1>Lab 5.1 — Virtual Threads in Practice</h1>
+<p><strong>Module:</strong> 5 — Virtual Threads &amp; Project Loom
+<strong>Files:</strong> <code>Lab_5_1_VirtualThreads.java</code></p>
+<blockquote>
+<p><strong>Run-flag callout</strong></p>
+<p>This lab must be run with two system properties set:</p>
+<ul>
+<li><code>-Djdk.virtualThreadScheduler.parallelism=2</code> caps the carrier pool to 2 threads. On a many-core development machine, the default carrier pool is too large to reliably show mount/unmount swaps in Activity 2 or carrier pinning stalls in Activity 3. Capping at 2 makes both effects visible regardless of host size.</li>
+<li><code>-Djdk.tracePinnedThreads=full</code> prints a stack trace the first time a pin event is detected. Harmless for Activities 1 and 2; essential evidence for Activity 3.</li>
+</ul>
+<p>If either flag is omitted, Activity 2 may look like nothing happened and Activity 3 may show two identical timings. Check the <code>java</code> command first if the output doesn't match the observation bullets.</p>
+</blockquote>
+<hr />
+<h2>Activity 1: Executor Swap — Fixed Pool vs Virtual Threads</h2>
+<p><em>The False Promise</em> — For two decades, the Java performance narrative around I/O-bound work has been "tune your thread pool." Pick a core-count multiplier, measure, retune. </p>
+<p>The advice isn't wrong for platform threads. Each one costs ~1MB of pre-allocated stack, so you have to be parsimonious. But the underlying premise, that thread count is the throughput ceiling, is a false promise for I/O-bound work. </p>
+<p>The ceiling isn't threads, it's stacks. Virtual threads remove the stack constraint, and the ceiling moves to where it should have always been: how much I/O the OS can actually service.</p>
+<p>This activity runs 1000 I/O-bound tasks — each one sleeps 100ms, representing a typical remote call — against two executors. </p>
+<p>The first is <code>Executors.newFixedThreadPool(N)</code> where <code>N</code> is <code>Runtime.getRuntime().availableProcessors()</code> — a conventionally-tuned pool sized to the host's core count. The second is <code>Executors.newVirtualThreadPerTaskExecutor()</code>, which creates a virtual thread per submitted task with no pool sizing at all. </p>
+<p>Both run the same workload. The elapsed times differ by roughly 30-50× on a 20-core machine, and by an even larger factor on smaller hosts — the narrower the fixed pool, the more tasks have to wait their turn. </p>
+<p>The fixed pool's math is exact: 1000 tasks × 100ms sleep ÷ N concurrent workers =<code>(100000 / N)</code> ms of wall-clock time. On a 20-core host that's 5000ms; on an 8-core laptop it's 12500ms. </p>
+<p>The virtual-thread executor completes in ~100ms regardless of host core count, because all 1000 tasks run concurrently from the scheduler's perspective; the sleep is just 1000 parked continuations waiting on a timer. No tuning, no configuration, no <code>@param</code> annotations for pool size. </p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Open <code>Lab_5_1_VirtualThreads.java</code>.</p>
+</li>
+<li>
+<p>Read the scaffolding at the top of the file. Note the <strong>run-flag callout</strong> in the class Javadoc — this lab is designed to be run with <code>-Djdk.virtualThreadScheduler.parallelism=2 -Djdk.tracePinnedThreads=full</code>. These flags are required for Activities 2 and 3 to produce visible evidence and are harmless for Activity 1.</p>
+</li>
+<li>
+<p>Read the Activity 1 scaffolding. Note the constants <code>AC1_TASK_COUNT = 1000</code>, <code>AC1_TASK_SLEEP_MS = 100</code>, <code>AC1_FIXED_POOL_SIZE = Runtime.getRuntime().availableProcessors()</code>. The <code>Ac1IoTask</code> record simulates an I/O call. The <code>ac1_runWorkload(ExecutorService)</code> helper submits all tasks, waits for completion, returns elapsed ms. Every call to a real executor goes through this helper — the only thing that changes between the two runs is which executor you hand it.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 1.1</strong>.</p>
+<p>Create two helper methods. <code>ac1_runFixedPool()</code> opens a fixed-thread-pool executor of size <code>AC1_FIXED_POOL_SIZE</code> and runs the workload. <code>ac1_runVirtualThreads()</code> opens a virtual-thread-per-task executor and runs the same workload. Both use try-with-resources so the executor is closed and drained automatically. Both return the elapsed ms from the helper. These two are a single cohesive paste — they are meant to be read side by side as the sole difference between the two approaches.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static long ac1_runFixedPool() throws Exception {
+    try (ExecutorService pool = Executors.newFixedThreadPool(AC1_FIXED_POOL_SIZE)) {
+        return ac1_runWorkload(pool);
+    }
+}
+
+private static long ac1_runVirtualThreads() throws Exception {
+    try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
+        return ac1_runWorkload(pool);
+    }
+}</code></pre></div>
+
+<pre><code>Also uncomment the import statement if it gives error on Executors
+</code></pre>
+<ol start="6">
+<li>
+<p>Locate <strong>TODO 1.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity1()</code> method.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "1" -&gt; activity1();</code>.</p>
+</li>
+<li>
+<p>Compile and run with the flags specified in the header. Select <strong>1</strong>.</p>
+</li>
+<li>
+<p>Observe the measured run, not the warmup run. The warmup call is deliberate — first-run numbers are distorted by JIT compilation, and reading them would confuse the comparison. The measured run happens second, after the JIT has warmed both code paths.</p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li><code>Fixed(20)</code> takes approximately 5000ms. The math is exact: 1000 tasks × 100ms sleep / 20 concurrent workers = 5000ms. The pool is the bottleneck — task 21 cannot start until task 1 finishes.</li>
+<li><code>VirtualThreads</code> takes approximately 100-150ms. The math is different: 1000 tasks run "concurrently," each parks on a timer, the carrier threads handle the parking/unparking. Elapsed is dominated by the single 100ms sleep plus submission and unpark overhead.</li>
+<li>The ratio on this workload is roughly 30-50×, depending on machine and JVM state. The absolute numbers vary; the ratio is the lesson.</li>
+<li><strong>Question:</strong> The fixed pool's 5000ms is not a JVM limitation — it's physics, given the pool size. Would increasing the fixed pool to 100 threads close the gap? What about 1000? At what point does "just make the pool bigger" stop being a workable strategy, and why?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Activity 2: Mount / Unmount Lifecycle</h2>
+<p><em>The Crack</em> — Activity 1 showed the throughput win but left the mechanism unexplained. The answer sits in one word from the Loom design: <em>continuation</em>. A virtual thread is a continuation. A pausable-resumable chunk of computation with plus a <code>Thread</code> API wrapper. </p>
+<p>When a VT calls a blocking operation like <code>Thread.sleep</code>, the runtime detaches the continuation from its carrier, parks it on whatever it was waiting for, and returns the carrier to the scheduler. The carrier is a real OS thread and can now run a different VT. When the original wait completes, the runtime schedules the VT onto any available carrier and not necessarily the one it came from. The VT identity is stable. The carrier underneath is not.</p>
+<p>This activity makes the shift visible. Five virtual threads each print their thread identity before a sleep, sleep for 200ms, then print it again. </p>
+<p>The identity string has the form <code>VirtualThread[#N]/runnable@ForkJoinPool-1-worker-M</code>. The <code>#N</code> part is the VT id — stable for the life of the virtual thread. The <code>worker-M</code> part is the current carrier — it may have changed during the sleep. </p>
+<p>With the carrier pool capped at 2 (via the run flag) and 5 VTs competing for those 2 carriers, some VTs will land back on a different worker after their sleep. Not all — the scheduler is free to mount a VT on whatever carrier is available, including the one it started on. The non-determinism is the point. In a pooled-thread world, the thread is the work; the two are one object. In the Loom world, the work is the continuation, and the thread is just whatever OS resource happens to be running it right now.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Read the Activity 2 scaffolding. Note the constants <code>AC2_TASK_COUNT = 5</code> and <code>AC2_SLEEP_MS = 200</code>. The <code>ac2_describe(String label)</code> helper prints the label and <code>Thread.currentThread()</code>. The Javadoc above it shows the identity string format and highlights which part is stable and which may change.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 2.1</strong>.</p>
+<p>Create a <code>Runnable</code> field called <code>ac2_blockingTask</code>. It should: print the current thread identity with label <code>"before sleep"</code>, call <code>Thread.sleep(AC2_SLEEP_MS)</code>, then print the current thread identity again with label <code>"after sleep "</code> (trailing space for column alignment). On interrupt, restore the interrupt flag and return.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static final Runnable ac2_blockingTask = () -&gt; {
+    System.out.println(ac2_describe(&quot;before sleep&quot;));
+    try {
+        Thread.sleep(AC2_SLEEP_MS);
+    } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+    }
+    System.out.println(ac2_describe(&quot;after sleep &quot;));
+};</code></pre></div>
+
+<ol start="4">
+<li>
+<p>Locate <strong>TODO 2.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity2()</code> method.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "2" -&gt; activity2();</code>.</p>
+</li>
+<li>
+<p>Compile and run with the flags specified in the header. Select <strong>2</strong>.
+    <code>java -cp .\bin "-Djdk.virtualThreadScheduler.parallelism=2" "-Djdk.tracePinnedThreads=full" Lab_5_1_VirtualThreads</code></p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li>Each VT prints twice — once before its sleep, once after. The <code>VirtualThread[#N]</code> id is identical in both prints for the same VT. The VT survived the sleep intact.</li>
+<li>The carrier name after the <code>@</code> is <code>ForkJoinPool-1-worker-1</code> or <code>ForkJoinPool-1-worker-2</code> — only two options, because <code>-Djdk.virtualThreadScheduler.parallelism=2</code> capped the pool.</li>
+<li><strong>Some</strong> VTs print <code>worker-1</code> before and <code>worker-2</code> after (or the reverse). That VT unmounted during sleep and re-mounted on a different carrier. Other VTs happen to land back on the same carrier — the scheduler is not required to change carrier, it's just free to.</li>
+<li>Run Activity 2 two or three more times. The pattern of which VTs swap carriers changes every run. This is scheduler non-determinism; the specific pattern is irrelevant, the fact that it changes is the point.</li>
+<li><strong>Question:</strong> In a traditional <code>ThreadPoolExecutor</code>, the identity of the thread and the identity of the work are one and the same — whichever pool worker picks up your <code>Runnable</code> is the thread that runs it from start to finish. Virtual threads break that one-to-one relationship. What does this cost a developer who relied on it? Think about <code>ThreadLocal</code>, lock ownership, and anything else that was "anchored" to a platform-thread identity.</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Activity 3: Carrier Thread Pinning</h2>
+<p><em>The Trap</em> — For most of the virtual threads era (JDK 21 GA through the early patch releases), the canonical Loom pitfall has been pinning. A VT that enters a <code>synchronized</code> block cannot unmount from its carrier until it exits the block, because the monitor ownership is tracked on the carrier's stack frame and that frame cannot be moved. If the VT then blocks — sleeps, waits on I/O, joins — the carrier is stuck too. Your lovely million-virtual-thread architecture silently degrades to a few-hundred-carrier-thread architecture the moment a hot path enters a <code>synchronized</code> block around a blocking call. The established advice for the past three years has been: migrate every such <code>synchronized</code> block to <code>ReentrantLock</code>, whose lock acquisition is continuation-aware and does not pin.</p>
+<p>In late 2024, JEP 491 landed in JDK 24: the HotSpot VM was changed so that virtual threads can acquire, hold, and release monitors independently of their carriers. Pinning from <code>synchronized</code> is gone in JDK 24, and the fix has been progressively backported into Java 21 patch releases. That means the classic pinning demo you'll find in any 2023-era blog post may no longer reproduce on a current JDK. This activity runs that demo and tells you directly which world your JDK is in.</p>
+<p>Eight tasks, each holding a lock for 500ms (simulating a critical section with blocking I/O inside), carrier pool capped at 2. Each task uses its own private monitor — no lock contention between tasks, so the only thing that can serialise them is carrier availability. One version uses <code>synchronized</code>, the other uses <code>ReentrantLock</code>. Depending on your JDK, you will see one of two outcomes, and both are correct — they just mean different things.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Read the Activity 3 scaffolding. Note <code>AC3_TASK_COUNT = 8</code> and <code>AC3_WORK_MS = 500</code>. The <code>ac3_doWorkUnderLock()</code> helper is a stand-in for "blocking I/O performed inside a critical section." Read the Javadoc above it carefully — it explains why each task must create its own monitor/lock rather than sharing one.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 3.1</strong>.</p>
+<p>Create a method called <code>ac3_pinningTask()</code> that returns a <code>Runnable</code>. Inside the method, create a private <code>Object</code> to serve as the monitor. The returned <code>Runnable</code> enters a <code>synchronized</code> block on that monitor, calls <code>ac3_doWorkUnderLock()</code>, handles <code>InterruptedException</code> by restoring the interrupt flag. Because the method creates a new monitor on every call, each task will receive a distinct monitor — there is no contention between tasks.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static Runnable ac3_pinningTask() {
+    final Object myMonitor = new Object();
+    return () -&gt; {
+        synchronized (myMonitor) {
+            try {
+                ac3_doWorkUnderLock();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    };
+}</code></pre></div>
+
+<ol start="4">
+<li>
+<p>Locate <strong>TODO 3.2</strong>.</p>
+<p>Create a method called <code>ac3_nonPinningTask()</code> that returns a <code>Runnable</code>. The structure mirrors <code>ac3_pinningTask()</code>: a private <code>ReentrantLock</code>, a returned <code>Runnable</code> that does <code>lock()</code>, tries the work, unlocks in <code>finally</code>. This is the conventional <code>ReentrantLock</code> idiom — the <code>finally</code> block guarantees the lock is released even if the work throws.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static Runnable ac3_nonPinningTask() {
+    final ReentrantLock myLock = new ReentrantLock();
+    return () -&gt; {
+        myLock.lock();
+        try {
+            ac3_doWorkUnderLock();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            myLock.unlock();
+        }
+    };
+}</code></pre></div>
+
+<ol start="6">
+<li>
+<p>Locate <strong>TODO 3.3</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity3()</code> method and the <code>ac3_runAll()</code> helper.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "3" -&gt; activity3();</code>.</p>
+</li>
+<li>
+<p>First, check your JDK version. In the terminal run <code>java -version</code> and note the output. Older JDK 21 builds will still exhibit classic pinning; JDK 24 and recent JDK 21 patch releases will not.</p>
+</li>
+<li>
+<p>Compile and run with the flags specified in the header. Select <strong><em>3</em></strong>.
+    <code>java -cp .\bin "-Djdk.virtualThreadScheduler.parallelism=2" "-Djdk.tracePinnedThreads=full" Lab_5_1_VirtualThreads</code></p>
+</li>
+<li>
+<p>Your output will match ONE of the two patterns below. Read the observation bullets for your pattern — and know why the other exists.</p>
+<p><strong>Pattern A — Classic pinning (older JDK 21 builds, pre-JEP-491 backport):</strong>
+- Synchronized version: approximately 2000ms elapsed. A stack trace appears in stdout starting with <code>VirtualThread[#N] reason:MONITOR</code> — this is the pin trace fired by <code>-Djdk.tracePinnedThreads=full</code>. The trace names the lambda line inside <code>ac3_pinningTask()</code> with a <code>&lt;== monitors:1</code> annotation on the owning frame.
+- ReentrantLock version: approximately 500ms elapsed. No pin trace.
+- Ratio: approximately <strong>4×</strong>.
+-Why: 8 tasks, carrier pool of 2, each carrier pinned for 500ms — only 2 tasks progress at a time, 8 ÷ 2 × 500ms = 2000ms. The ReentrantLock version unmounts properly during the sleep, all 8 tasks progress concurrently, wall-clock ~500ms.</p>
+<p><strong>Pattern B — JEP 491 applied (JDK 24, or recent JDK 21 patches):</strong>
+- Both versions complete in approximately 500ms. Ratio ≈ 1×. No pin trace, even though <code>-Djdk.tracePinnedThreads=full</code> is set.
+- Why: JEP 491 changed the VM's monitor implementation so that virtual threads can unmount from inside a <code>synchronized</code> block. The <code>synchronized</code> version no longer pins its carrier during <code>Thread.sleep()</code>. Both primitives now behave identically for this workload.</p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li>The <code>synchronized</code> vs <code>ReentrantLock</code> decision is returning to "use whichever best fits the code." The blanket "always migrate to <code>ReentrantLock</code>" rule from 2023 is no longer necessary on current JDKs.</li>
+<li>Pinning is not completely gone even on JDK 24. Native method calls, Foreign Function &amp; Memory API calls, and a handful of class-loading paths can still pin the carrier. These are much rarer in typical application code than the old <code>synchronized</code>-plus-I/O pattern.</li>
+<li><code>-Djdk.tracePinnedThreads=full</code> was the original diagnostic flag. On JDKs with JEP 491 applied, it has been removed (the flag is accepted silently but produces no output). The modern diagnostic is the JFR event <code>jdk.VirtualThreadPinned</code> — continuously recorded when JFR is active, filterable, and doesn't interfere with hot-path execution the way the trace flag did.</li>
+<li>If you saw Pattern A: your JDK has the traditional Loom behaviour. This is the world most production systems are still in as of mid-2026. The <code>synchronized → ReentrantLock</code> refactor is a real win.</li>
+<li>If you saw Pattern B: your JDK has the JEP 491 fix. Welcome to the post-pinning era. Spend your refactoring budget elsewhere.</li>
+<li><strong>Question</strong>: JEP 491 is a JVM-level fix that silently makes old code faster. You add a newer JDK to your CI, run your existing test suite, and your throughput goes up — no code change. When else in your career has a JDK upgrade done that for you? What does that tell you about where Java's scalability investments are landing, and about the value of keeping the runtime current even when your codebase doesn't evolve?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Lab Complete</h2>
+<p>These three activities walk the Loom story end to end. Activity 1 shows <em>what</em> changes — a 30-50× throughput win for I/O-bound work, no tuning required. Activity 2 shows <em>why</em> it works — VTs unmount from their carriers during blocking operations, freeing the carriers to run other VTs, so one carrier can serve many parked continuations. Activity 3 shows <em>how it was breaks</em> — <code>synchronized</code> prevents unmounting, silently collapsing throughput back toward the carrier pool size — and shows that the JDK team has been quietly fixing this at the VM level. The mental model throughout: platform threads <em>are</em> the work; virtual threads <em>run</em> the work on whatever carrier happens to be free. The pitfalls are shrinking, not growing — the runtime is catching up to the abstraction.</p>
+<script>
+(function() {
+    var JAVA_KEYWORDS = new Set([
+        'abstract','assert','break','case','catch','class','continue','default',
+        'do','else','enum','extends','final','finally','for','goto','if',
+        'implements','import','instanceof','interface','native','new','package',
+        'private','protected','public','return','static','strictfp','super',
+        'switch','synchronized','this','throw','throws','transient','try',
+        'volatile','while','true','false','null','var','record','sealed',
+        'permits','non-sealed','yield'
+    ]);
+    var JAVA_TYPES = new Set([
+        'int','long','short','byte','char','boolean','float','double','void',
+        'String','Integer','Long','Boolean','Object','List','Map','Set',
+        'Thread','Runnable','Exception','RuntimeException','InterruptedException',
+        'AtomicInteger','AtomicLong','AtomicBoolean','AtomicReference',
+        'ConcurrentHashMap','CompletableFuture','Future','ExecutorService',
+        'Executors','System','Math'
+    ]);
+
+    function escapeHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function highlight(src) {
+        var re = /(\/\*[\s\S]*?\*\/)|(\/\/[^\n]*)|("(?:\\.|[^"\\])*")|('(?:\\.|[^'\\])*')|(@[A-Za-z_][A-Za-z0-9_]*)|(\b\d[\d_]*(?:\.\d[\d_]*)?[fFdDlL]?\b)|([A-Za-z_][A-Za-z0-9_]*)|([^A-Za-z0-9_\s]+)|(\s+)/g;
+        var out = '';
+        var m;
+        while ((m = re.exec(src)) !== null) {
+            if (m[1])      out += '<span class="tok-cmt">' + escapeHtml(m[1]) + '</span>';
+            else if (m[2]) out += '<span class="tok-cmt">' + escapeHtml(m[2]) + '</span>';
+            else if (m[3]) out += '<span class="tok-str">' + escapeHtml(m[3]) + '</span>';
+            else if (m[4]) out += '<span class="tok-str">' + escapeHtml(m[4]) + '</span>';
+            else if (m[5]) out += '<span class="tok-ann">' + escapeHtml(m[5]) + '</span>';
+            else if (m[6]) out += '<span class="tok-num">' + escapeHtml(m[6]) + '</span>';
+            else if (m[7]) {
+                if (JAVA_KEYWORDS.has(m[7]))    out += '<span class="tok-kw">' + m[7] + '</span>';
+                else if (JAVA_TYPES.has(m[7]))  out += '<span class="tok-ty">' + m[7] + '</span>';
+                else                            out += escapeHtml(m[7]);
+            }
+            else if (m[8]) out += escapeHtml(m[8]);
+            else if (m[9]) out += m[9];
+        }
+        return out;
+    }
+
+    document.querySelectorAll('pre code.lang-java, pre code.language-java').forEach(function(el) {
+        var raw = el.textContent;
+        el.setAttribute('data-raw', raw);
+        el.innerHTML = highlight(raw);
+    });
+})();
+</script>
+<script>
+(function() {
+    document.querySelectorAll('.code-wrap').forEach(function(wrap) {
+        var btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', function() {
+            var code = wrap.querySelector('pre code');
+            var text = code.getAttribute('data-raw') || code.textContent;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(showCopied).catch(fallbackCopy);
+            } else {
+                fallbackCopy();
+            }
+            function fallbackCopy() {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); showCopied(); }
+                catch (e) { btn.textContent = 'Error'; }
+                document.body.removeChild(ta);
+            }
+            function showCopied() {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 1500);
+            }
+        });
+        wrap.appendChild(btn);
+    });
+})();
+</script>
+</body>
+</html>

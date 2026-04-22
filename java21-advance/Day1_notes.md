@@ -4,6 +4,7 @@ https://onedrive.live.com/?id=EBE3EA8146B849E3%21s5f8b702387b745fcb9c52d626f39e2
 
 ? extends T (upper bound) - read only 
 ? super T (lower bound) - write safely - safe to read only as OBJECT
+? super T (lower bound) - write safely - safe to read only as OBJECT
 
 PECS - producer extends (getting value), consumer super (putting value)
 

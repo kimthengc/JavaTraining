@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab 4.2 — Executors, Pools &amp;amp; Concurrent Collections</title>
+<style>
+:root {
+    --accent:        #0E7C86;
+    --accent-soft:   #2EB8B8;
+    --accent-deeper: #0A5E66;
+    --accent-tint:   #E8F6F6;
+    --accent-faint:  #F3FAFB;
+
+    --text-body:     #1F2937;
+    --text-muted:    #6B7280;
+    --border-soft:   #E5E7EB;
+    --code-bg:       #FAFBFC;
+
+    --syn-keyword:  #1E40AF;
+    --syn-type:     #0E7C86;
+    --syn-string:   #15803D;
+    --syn-comment:  #94A3B8;
+    --syn-number:   #7C3AED;
+    --syn-annot:    #BE185D;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; }
+
+/* Fixed Copilot-gradient bar at the top of every page */
+body::before {
+    content: "";
+    display: block;
+    height: 3px;
+    width: 100%;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+}
+
+body {
+    font-family: "Segoe UI", "Open Sans", "Helvetica", "Arial", sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--text-body);
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem 4rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: "Segoe UI Semibold", "Segoe UI", "Open Sans", sans-serif;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1.3;
+    margin-top: 1.6em;
+    margin-bottom: 0.5em;
+}
+h1 {
+    font-size: 2em;
+    margin-top: 0;
+    padding-bottom: 0.4em;
+    position: relative;
+}
+h1::after {
+    content: "";
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 0.4em;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    opacity: 0.8;
+}
+h2 { font-size: 1.4em; border-bottom: 1px solid var(--border-soft); padding-bottom: 0.2em; }
+h3 { font-size: 1.1em; color: var(--accent-deeper); }
+
+p { margin: 0.7em 0; }
+
+a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+a:hover { border-bottom-style: solid; color: var(--accent-deeper); }
+
+ul, ol { margin: 0.7em 0; padding-left: 1.8em; }
+li { margin: 0.3em 0; }
+ul li::marker { color: var(--accent); }
+ol li::marker { color: var(--accent); font-weight: 600; }
+
+strong { color: #111827; font-weight: 600; }
+
+:not(pre) > code {
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    font-size: 0.88em;
+    background: var(--accent-tint);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent-deeper);
+}
+
+.code-wrap {
+    position: relative;
+    margin: 1.2em 0;
+    background: var(--code-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    overflow: hidden;
+    padding-left: 3px;
+}
+.code-wrap::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+}
+
+.code-wrap pre {
+    margin: 0;
+    padding: 0.9em 1em;
+    padding-right: 5em;
+    font-size: 13.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    color: var(--text-body);
+    white-space: pre;
+}
+.code-wrap pre code {
+    font-family: inherit;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    padding: 4px 12px;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: #fff;
+    border: 1px solid var(--accent-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    opacity: 0.8;
+}
+.copy-btn:hover  { opacity: 1; background: var(--accent-tint); }
+.copy-btn:active { transform: translateY(1px); }
+.copy-btn.copied { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.tok-kw  { color: var(--syn-keyword); font-weight: 600; }
+.tok-ty  { color: var(--syn-type); }
+.tok-str { color: var(--syn-string); }
+.tok-cmt { color: var(--syn-comment); font-style: italic; }
+.tok-num { color: var(--syn-number); }
+.tok-ann { color: var(--syn-annot); }
+
+blockquote {
+    border-left: 4px solid var(--accent-soft);
+    background: var(--accent-faint);
+    color: #374151;
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    font-style: italic;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 0.93em;
+}
+th, td {
+    border: 1px solid var(--border-soft);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: var(--accent);
+    color: #fff;
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-weight: 600;
+}
+tr:nth-child(even) td { background: var(--accent-faint); }
+
+hr { border: none; border-top: 1px solid var(--border-soft); margin: 2em 0; }
+
+img { max-width: 100%; height: auto; }
+
+@media print {
+    body::before { display: none; }
+    body { max-width: none; padding: 1cm; font-size: 11pt; }
+    .copy-btn { display: none; }
+    .code-wrap { page-break-inside: avoid; }
+    h1, h2, h3 { page-break-after: avoid; }
+    a { border-bottom: none; color: inherit; }
+}
+</style>
+</head>
+<body>
+<h1>Lab 4.2 — Executors, Pools &amp; Concurrent Collections</h1>
+<p><strong>Module:</strong> 4 — Concurrency Fundamentals &amp; Async Architecture
+<strong>Files:</strong> <code>Lab_4_2_Executors.java</code>
+<strong>Compile:</strong> <code>javac Lab_4_2_Executors.java</code>
+<strong>Run:</strong> <code>java Lab_4_2_Executors</code></p>
+<hr />
+<h2>Activity 1: From Raw Threads to a Pool</h2>
+<p><em>The Illusion</em> — Most developers think of a thread pool as "a thing that holds threads so I don't have to call <code>new Thread()</code> as often." That framing misses what the Executor framework actually gives you. </p>
+<p>A pool decouples <em>submission</em> from <em>execution</em>. You hand it work; it decides when, where, and on which thread that work runs. Your code is done the moment <code>submit()</code> returns. The result is a <code>Future</code>, a promise you cash in later. This activity makes that decoupling visible by printing the pool's internal state the instant after submission.</p>
+<p><code>Executors.newFixedThreadPool(4)</code> returns an <code>ExecutorService</code> backed by a <code>ThreadPoolExecutor</code> with exactly 4 worker threads and an unbounded <code>LinkedBlockingQueue</code>. When you <code>submit()</code> a task, one of two things happens: if a worker is idle, the task runs immediately; otherwise the task is placed on the queue and sits there until a worker becomes free. </p>
+<p>Either way, <code>submit()</code> returns instantly. It hands you a <code>Future&lt;T&gt;</code> that represents the eventual result. You call <code>.get()</code> on that <code>Future</code> when you actually need the value, and <code>.get()</code> blocks until the task has finished. </p>
+<p>This is also the only place task exceptions surface: if the task threw, <code>.get()</code> rethrows it wrapped in <code>ExecutionException</code>. Casting the pool to <code>ThreadPoolExecutor</code> exposes <code>getActiveCount()</code> and <code>getQueue().size()</code>, which make the submission/execution split tangible on the console. </p>
+<p>Java 21 also made <code>ExecutorService</code> <code>AutoCloseable</code>, so <code>try (ExecutorService pool = ...)</code> gives you a clean, orderly shutdown at the end of the block — no more <code>shutdown() + awaitTermination()</code> boilerplate.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Open <code>Lab_4_2_Executors.java</code>.</p>
+</li>
+<li>
+<p>Read the shared configuration block at the top. Note the <code>CORES_OVERRIDE</code> constant set to <code>0</code>, meaning "detect the host's cores at runtime." This is a knob used by Activities 2 and 3. </p>
+<p>Activity 1 uses a fixed pool of 4 for clarity. Below that, read the Activity 1 scaffolding: <code>AC1_POOL_SIZE = 4</code>, <code>AC1_TASK_COUNT = 12</code>, <code>AC1_TASK_MS = 300</code>. Twelve tasks, each sleeping 300ms, into a pool of 4 — that is 3 waves of 4, roughly 900ms total.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 1.1</strong>.</p>
+<p>Create a method called <code>ac1_submitAll</code> that accepts the <code>ExecutorService</code> pool, submits <code>AC1_TASK_COUNT</code> tasks (each calling <code>ac1_task(id)</code> with a 1-based id), and returns the list of <code>Future&lt;String&gt;</code> handles. This is the "decoupled submission" half of the lesson — all 12 tasks get queued up in a tight loop before a single <code>.get()</code> is called.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static List&lt;Future&lt;String&gt;&gt; ac1_submitAll(ExecutorService pool) {
+    List&lt;Future&lt;String&gt;&gt; futures = new ArrayList&lt;&gt;();
+    for (int i = 1; i &lt;= AC1_TASK_COUNT; i++) {
+        final int id = i;
+        futures.add(pool.submit(() -&gt; ac1_task(id)));
+    }
+    return futures;
+}</code></pre></div>
+
+<ol start="5">
+<li>
+<p>Locate <strong>TODO 1.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity1()</code> method body.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "1" -&gt; activity1();</code>.</p>
+</li>
+<li>
+<p>Compile and run. Select <strong>1</strong>.</p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li>The "immediately after submit()" block reports <code>active threads: 4 / 4</code> and <code>queued tasks: 8</code>. All 12 tasks were handed to the pool in milliseconds. 4 are running, 8 are waiting their turn on the internal queue. <code>submit()</code> did not block — it returned the moment the task was accepted.</li>
+<li>The result lines print in submission order because the loop calls <code>.get()</code> in submission order. Each <code>.get()</code> blocks until <em>that specific</em> task is done. You are watching the calling thread park, not the tasks execute.</li>
+<li>The thread names repeat. <code>pool-1-thread-1</code> appears on multiple results because the same worker thread picked up another task after finishing its first. That is the "pool" working — threads are recycled, not created per task.</li>
+<li>Total elapsed is roughly 3 × 300ms = 900ms. Three waves of four tasks each, executed in parallel within a wave.</li>
+<li><strong>Question:</strong> The try-with-resources block calls <code>close()</code> on the <code>ExecutorService</code> when it exits. What would happen if a task inside this pool threw an exception — would <code>close()</code> still complete cleanly, and where would that exception surface? Trace the path from the thrown exception to the place your code would actually see it.</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Activity 2: Pool Sizing, CPU-Bound vs I/O-Bound</h2>
+<p><em>The Trap</em> — "I have 8 cores, so I'll use 8 threads" is a reasonable-sounding rule that is wrong about half the time. It is correct for CPU-bound work and dramatically wrong for I/O-bound work. </p>
+<p>The pain is that nothing in the API warns you. Both pool sizes compile, both run, both return correct answers. Only the stopwatch tells you that one of them is leaving most of the machine idle. </p>
+<p>This activity runs the same task count under both workload characters and both pool sizes, so the four outcomes sit side by side.</p>
+<p>The formula the textbooks give is <code>threads ≈ cores × (1 + wait_time / compute_time)</code>. </p>
+<p>For pure CPU work, <code>wait_time</code> is zero, so the optimum is <code>cores</code> threads — one per core, no more. Any extra threads just take turns on the same cores while paying context-switching overhead. </p>
+<p>For I/O work, threads spend most of their life parked in a syscall waiting for the kernel to wake them up. While a thread is parked, its core is idle. Adding more threads means more work queued up to use those idle cores. With 200ms I/O and near-zero compute, you can oversubscribe by a factor of dozens and still win. </p>
+<p>The activity demonstrates both extremes: I/O-bound work with a cores-sized pool leaves most of the machine asleep (≈4× slowdown); CPU-bound work with an oversubscribed pool does not speed up (cores can't magically do more work in parallel than they have cores for). </p>
+<p>Module 5's Virtual Threads exist specifically to make the I/O-bound case effortless — you will write "one thread per request" code and the JVM schedules millions of them onto a small carrier pool. </p>
+<p>But Module 4 is where you learn <em>why</em> that matters by feeling the pain first.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Read the Activity 2 scaffolding. Note <code>AC2_TASK_MULTIPLIER = 4</code> (so <code>taskCount = 4 × cores</code>), <code>AC2_IO_TASK_MS = 200</code> for the I/O simulation, and <code>AC2_CPU_ITERATIONS_PER_CORE = 2_500_000</code> for the CPU simulation. The CPU task uses <code>Math.sqrt</code> in a loop and writes its accumulator to a <code>volatile</code> sink so the JIT cannot eliminate the "dead" computation. Both task types have been defined for you as <code>ac2_ioTask()</code> and <code>ac2_cpuTask(iterations)</code>.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 2.1</strong>.</p>
+<p>Create a method called <code>ac2_runWorkload</code> that accepts a pool size, a task count, and a <code>Runnable</code> task, builds a fixed pool of that size, submits the task <code>taskCount</code> times, waits for them all to finish via <code>.get()</code>, and returns the elapsed time in milliseconds. This is the single benchmark primitive used for all four rows.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static long ac2_runWorkload(int poolSize, int taskCount, Runnable task)
+        throws InterruptedException {
+    try (ExecutorService pool = Executors.newFixedThreadPool(poolSize)) {
+        long start = System.nanoTime();
+        List&lt;Future&lt;?&gt;&gt; futures = new ArrayList&lt;&gt;();
+        for (int i = 0; i &lt; taskCount; i++) {
+            futures.add(pool.submit(task));
+        }
+        for (Future&lt;?&gt; f : futures) {
+            try { f.get(); } catch (ExecutionException e) {
+                throw new RuntimeException(e.getCause());
+            }
+        }
+        return (System.nanoTime() - start) / 1_000_000;
+    }
+}</code></pre></div>
+
+<ol start="4">
+<li>
+<p>Locate <strong>TODO 2.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity2()</code> method body.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "2" -&gt; activity2();</code>.</p>
+</li>
+<li>
+<p>Compile and run. Select <strong>2</strong>. Then select <strong>2</strong> again — the second run is the one to read. The first run pays JIT compilation cost on whichever row happens to execute first, which biases the table. The second run in the same JVM session has a settled JIT and produces the comparison the activity is actually about.</p>
+</li>
+<li>
+<p>Observe the four rows of the table:</p>
+<ul>
+<li><strong>I/O-bound, cores-sized pool:</strong> slowest. Every thread spends most of its time sleeping, but there are only <code>cores</code> threads to sleep, so you process roughly <code>cores</code> items per 200ms window. With <code>4 × cores</code> tasks, that is 4 waves → ≈800ms.</li>
+<li><strong>I/O-bound, oversubscribed pool:</strong> fastest. All <code>4 × cores</code> tasks start simultaneously, all sleep simultaneously, all wake up together → ≈200ms. The machine was never busy; you just gave the kernel more parked threads to wake up.</li>
+<li><strong>CPU-bound, cores-sized pool:</strong> competitive. Exactly one thread per core, each core pinned to one task at a time, no contention overhead. This is what the formula tells you is optimal. On a 20-core box, expect ~15-20ms on the second run.</li>
+<li><strong>CPU-bound, oversubscribed pool:</strong> essentially identical elapsed time to the cores-sized run (within ~10-15%). More threads do not create more cores. The extra threads just time-slice onto the same hardware.</li>
+<li>The CPU rows may vary a few percent run-to-run depending on thermals and OS activity. The point is the <em>ratio</em>: I/O gets a ≈4× speedup from oversubscription, CPU gets ≈1×.</li>
+<li><strong>Question:</strong> The formula says <code>threads ≈ cores × (1 + wait/compute)</code>. A web service where most requests make one 80ms database call and do 2ms of JSON serialisation sits at wait/compute = 40. On a 16-core box, that formula recommends ≈656 threads. Why does that number feel absurd on a traditional <code>ThreadPoolExecutor</code>, and what specifically about Java 21's Virtual Threads (Module 5) makes the same 656 "threads" ordinary?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Activity 3: ForkJoinPool &amp; Work-Stealing on Real Split/Merge</h2>
+<p><em>The Crack</em> — Most demos of <code>ForkJoinPool</code> use recursive Fibonacci. Fibonacci teaches you the fork-compute-join mechanics, but it hides the most important tuning knob: the split threshold. Fibonacci's "merge" step is one addition, so it never exposes the cost of over-splitting. </p>
+<p>In real code, the split threshold is the single most important decision you make. Set it too coarse and you fail to saturate the pool. Set it too fine and the pool spends more cycles creating and merging tiny tasks than doing the actual work. </p>
+<p>This activity runs the same parallel sum with a good threshold and a deliberately bad one, so the cost curve is measurable instead of theoretical.</p>
+<p><code>ForkJoinPool</code> runs a work-stealing scheduler. Each worker thread has its own <em>deque</em> (double-ended queue). When a worker forks a subtask, that subtask goes onto the front of its own deque. When a worker runs out of work, it peeks at <em>other</em> workers' deques and steals from the back. This two-ended design is why stealing doesn't contend with the owner: the owner pushes and pops from one end, thieves take from the other. </p>
+<p>The consequence is that you don't need to manually balance work across threads. As long as you keep forking subtasks, idle workers will find them. The threshold is the knob that says "below this size, stop splitting and just do the work sequentially." </p>
+<p>A good threshold is large enough that the work done justifies the overhead of creating, forking, and joining the task object (typically thousands of elements for lightweight per-element work). </p>
+<p>A bad threshold (say 10) creates hundreds of thousands of tiny <code>RecursiveTask</code> objects for a million-element array, and each of those objects costs allocation, scheduling, and join-synchronisation. </p>
+<p>The bad configuration still parallelises and still beats sequential on large workloads but it squanders most of the potential speedup and can be three to ten times slower than the good configuration. The lesson is not "parallel is risky"; the lesson is "parallel has a cost curve and threshold is where you live on it."</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Read the Activity 3 scaffolding. The array is sized <code>AC3_ELEMENTS_PER_CORE × cores = 1_000_000 × cores</code> — enough work per core that parallelism has something to chew on. The per-element <code>ac3_transform</code> is <code>sqrt(v) + log(v+1) × sin(v × 0.001)</code>, deliberately non-trivial so the sequential baseline does not auto-vectorise into a trivial SIMD loop and make the comparison meaningless. Thresholds are <code>AC3_GOOD_THRESHOLD = 10_000</code> and <code>AC3_BAD_THRESHOLD = 10</code>. The <code>SumTask extends RecursiveTask&lt;Double&gt;</code> class and the <code>ac3_sequential</code> baseline are both pre-written — you only need to wire them up. Note also <code>ac3_prepare()</code>: it lazy-initialises the array on first call and runs three sequential + three ForkJoinPool warmup passes to settle the JIT before any timed row runs.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 3.1</strong>.</p>
+<p>Create a method called <code>ac3_forkJoin</code> that accepts the array, a threshold, and a parallelism level; builds a <code>ForkJoinPool</code> of that size; invokes a <code>SumTask</code> covering the whole array; and returns the elapsed time in milliseconds. Use try-with-resources — <code>ForkJoinPool</code> is <code>AutoCloseable</code> in Java 21.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static long ac3_forkJoin(double[] data, int threshold, int parallelism)
+        throws InterruptedException {
+    try (ForkJoinPool pool = new ForkJoinPool(parallelism)) {
+        long start = System.nanoTime();
+        AC2_SINK = pool.invoke(new SumTask(data, 0, data.length, threshold));
+        return (System.nanoTime() - start) / 1_000_000;
+    }
+}</code></pre></div>
+
+<ol start="4">
+<li>
+<p>Locate <strong>TODO 3.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity3()</code> method body.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "3" -&gt; activity3();</code>.</p>
+</li>
+<li>
+<p>Compile and run. Select <strong>3</strong>. The first run will pause for a moment at <code>preparing array and warming JIT...</code> while the array is populated and the warmup passes execute. Subsequent runs in the same JVM session are instant. <strong>Read the first run's numbers</strong> — the bad-threshold row shows its true cost when the fine-grained task path has not yet been JIT-compiled. Run it a few more times and watch the bad-threshold row shrink toward the good one, which is itself a second lesson (noted below).</p>
+</li>
+<li>
+<p>Observe the three rows:</p>
+<ul>
+<li><strong>Sequential:</strong> the baseline. On a 20-core box this is around 150ms; on a 4-core laptop it is longer. This is the number parallelism has to beat.</li>
+<li><strong>Fork-join with good threshold (10_000):</strong> the headline. On any multi-core machine this is dramatically faster than sequential — a ≈10× speedup is typical on 16–20 cores. Work-stealing saturates the pool automatically; no balancing code was written.</li>
+<li><strong>Fork-join with bad threshold (10):</strong> <em>still faster than sequential</em>, but on the first run in a session the gap to the good threshold is large — typically 2-4× slower than the good row. That is the cost of creating, forking, and joining millions of tiny tasks instead of thousands. On subsequent runs, the JIT compiles the fine-grained task path and the gap narrows dramatically. This is itself a lesson: on a warm JVM with plenty of cores, work-stealing can almost paper over a bad threshold — but production code hits cold paths constantly (new request patterns, new data shapes, classloader boundaries), and you pay the "run 1" cost every time one is triggered.</li>
+<li>The sanity check prints the sum. It is identical across all three strategies — parallelism is purely a performance concern, not a correctness one, as long as your fork/join logic is right.</li>
+<li><strong>Question:</strong> You ran Activity 3 multiple times and watched the bad-threshold row shrink from ~47ms on run 1 to ~17ms on run 3. What does that tell you about benchmark methodology in general, and what does it mean for a production service that frequently hits "cold" code paths — new endpoint versions, rare request shapes, classes loaded lazily under a feature flag? Where does the "warm benchmark" number lie to you?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Activity 4: Producer-Consumer with BlockingQueue &amp; Backpressure</h2>
+<p><em>The False Promise</em> — New developers often ask "which queue should I use for producer-consumer?" and get pointed at <code>LinkedBlockingQueue</code>, which is technically unbounded. </p>
+<p>"Unbounded" sounds safe. It is the opposite. An unbounded queue with a faster producer than consumers will grow until it eats all available heap, at which point your service dies of <code>OutOfMemoryError</code> in production at 3am. </p>
+<p>A bounded queue, by contrast, does the right thing automatically: when it fills up, <code>put()</code> blocks. That block propagates backwards through the pipeline. The producer stops producing until downstream has room. This is <em>backpressure</em>, and it is the whole point of bounded queues.</p>
+<p><code>ArrayBlockingQueue(capacity)</code> is a fixed-size bounded queue. <code>put()</code> blocks when full. <code>take()</code> blocks when empty. Nothing about this is magic. Both methods park the calling thread on an internal <code>Condition</code> variable until the opposite operation signals them. The behaviour to watch for is this: the producer is unthrottled; the consumers are slow (200ms per item). </p>
+<p>The queue will fill to capacity within a few iterations and then stay at capacity for the duration of the run, because every time a consumer drains one item, the producer immediately pushes another. You will see this on the console as a sequence of <code>queue depth=5</code> lines; the producer is spending most of its wall-clock time parked inside <code>put()</code>. </p>
+<p>That parking is the backpressure doing its job. The results collections use <code>ConcurrentHashMap</code> and <code>CopyOnWriteArrayList</code> — a one-sentence callback to Lab 4.1: both are internally thread-safe, so two consumer threads can write concurrently without any <code>synchronized</code> on your part. </p>
+<p>After the pipeline drains, <code>map.size() == 50</code> and <code>list.size() == 50</code> prove there were no drops, no duplicates, and no <code>ConcurrentModificationException</code>.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Read the Activity 4 scaffolding. Note <code>AC4_QUEUE_CAPACITY = 5</code> (deliberately tiny so you can see it saturate), <code>AC4_ITEM_COUNT = 50</code>, <code>AC4_CONSUMER_COUNT = 2</code>, and <code>AC4_CONSUMER_WORK_MS = 200</code>. Total consumer capacity is <code>2 consumers × (1 item / 200ms) = 10 items/sec</code>, so the 50 items will take roughly 5 seconds to drain. The <code>ac4_producer</code> and <code>ac4_consumer</code> methods are already written — note how the producer prints a timestamped line at each <code>put()</code> showing the queue depth, and how the consumer exits on a sentinel <code>AC4_POISON_PILL</code> value rather than polling a flag. The poison pill is the clean way to shut down consumers that are blocked in <code>take()</code>: one pill per consumer.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 4.1</strong>.</p>
+<p>Create a method called <code>ac4_runPipeline</code> that accepts the queue, the results map, the order list, and the start timestamp. It should start the producer on its own named thread, then use a two-consumer <code>ExecutorService</code> to run the consumer bodies, and wait for the producer to finish before returning. Use try-with-resources on the consumer <code>ExecutorService</code> — its <code>close()</code> will wait for the consumers to drain the queue and exit on their poison pills before returning.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static void ac4_runPipeline(BlockingQueue&lt;Integer&gt; queue,
+                                    ConcurrentHashMap&lt;Integer, String&gt; results,
+                                    CopyOnWriteArrayList&lt;String&gt; order,
+                                    long start) throws InterruptedException {
+    Thread producer = new Thread(() -&gt; ac4_producer(queue, start), &quot;producer&quot;);
+    producer.start();
+
+    try (ExecutorService consumers = Executors.newFixedThreadPool(AC4_CONSUMER_COUNT)) {
+        for (int i = 0; i &lt; AC4_CONSUMER_COUNT; i++) {
+            consumers.submit(() -&gt; ac4_consumer(queue, results, order));
+        }
+        producer.join();
+        // try-with-resources close() waits for consumers to drain and exit.
+    }
+}</code></pre></div>
+
+<ol start="4">
+<li>
+<p>Locate <strong>TODO 4.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity4()</code> method body.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "4" -&gt; activity4();</code>.</p>
+</li>
+<li>
+<p>Compile and run. Select <strong>4</strong>.</p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li>The first few <code>producer put</code> lines arrive in rapid succession — queue depth climbs 1, 2, 3, 4, 5. Then the pattern changes: the producer starts putting one item every ≈100ms (half the consumer work time, because there are two consumers). The queue stays pinned at depth 5 for the entire middle of the run. That is backpressure in action — the producer is parked inside <code>put()</code> waiting for a consumer to drain a slot.</li>
+<li>Total elapsed is roughly 5 seconds: 50 items through a 10-item/sec pipeline.</li>
+<li><code>results.size() == 50</code> and <code>order.size() == 50</code>. Two threads wrote concurrently to both collections throughout the run, and neither collection corrupted. That is the job of <code>ConcurrentHashMap</code> and <code>CopyOnWriteArrayList</code> — thread-safety baked in, no external locks required.</li>
+<li>The producer never saw an exception, never dropped an item, never got ahead of the consumers by more than 5 items. The bounded queue enforced that ceiling, automatically.</li>
+<li><strong>Question:</strong> If you replaced <code>new ArrayBlockingQueue&lt;&gt;(5)</code> with <code>new LinkedBlockingQueue&lt;&gt;()</code> (unbounded), the code would still compile, still run, still produce the correct 50-item result under this small workload. What specific failure mode does the unbounded queue expose that the bounded queue prevents, and at what scale would you first see it in production? Why doesn't the small demo reveal the problem?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Lab Complete</h2>
+<p>A thread pool is not just a thread reuse optimisation — it is the boundary between submitting work and executing it, and every Executor pattern in Java builds on that split. Pool size is a tuning decision, not a default: CPU-bound work wants <code>cores</code>, I/O-bound work wants <code>cores × (1 + wait/compute)</code>, and getting this wrong costs you throughput silently. <code>ForkJoinPool</code> automates saturation through work-stealing but hands you the split threshold as the critical knob. Bounded queues give you backpressure for free; unbounded ones give you <code>OutOfMemoryError</code> for free. Module 5 will show you how Virtual Threads collapse most of the I/O-sizing problem into a non-question, but everything in this lab remains relevant for the CPU-bound and fork-join cases that Loom does not change.</p>
+<script>
+(function() {
+    var JAVA_KEYWORDS = new Set([
+        'abstract','assert','break','case','catch','class','continue','default',
+        'do','else','enum','extends','final','finally','for','goto','if',
+        'implements','import','instanceof','interface','native','new','package',
+        'private','protected','public','return','static','strictfp','super',
+        'switch','synchronized','this','throw','throws','transient','try',
+        'volatile','while','true','false','null','var','record','sealed',
+        'permits','non-sealed','yield'
+    ]);
+    var JAVA_TYPES = new Set([
+        'int','long','short','byte','char','boolean','float','double','void',
+        'String','Integer','Long','Boolean','Object','List','Map','Set',
+        'Thread','Runnable','Exception','RuntimeException','InterruptedException',
+        'AtomicInteger','AtomicLong','AtomicBoolean','AtomicReference',
+        'ConcurrentHashMap','CompletableFuture','Future','ExecutorService',
+        'Executors','System','Math'
+    ]);
+
+    function escapeHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function highlight(src) {
+        var re = /(\/\*[\s\S]*?\*\/)|(\/\/[^\n]*)|("(?:\\.|[^"\\])*")|('(?:\\.|[^'\\])*')|(@[A-Za-z_][A-Za-z0-9_]*)|(\b\d[\d_]*(?:\.\d[\d_]*)?[fFdDlL]?\b)|([A-Za-z_][A-Za-z0-9_]*)|([^A-Za-z0-9_\s]+)|(\s+)/g;
+        var out = '';
+        var m;
+        while ((m = re.exec(src)) !== null) {
+            if (m[1])      out += '<span class="tok-cmt">' + escapeHtml(m[1]) + '</span>';
+            else if (m[2]) out += '<span class="tok-cmt">' + escapeHtml(m[2]) + '</span>';
+            else if (m[3]) out += '<span class="tok-str">' + escapeHtml(m[3]) + '</span>';
+            else if (m[4]) out += '<span class="tok-str">' + escapeHtml(m[4]) + '</span>';
+            else if (m[5]) out += '<span class="tok-ann">' + escapeHtml(m[5]) + '</span>';
+            else if (m[6]) out += '<span class="tok-num">' + escapeHtml(m[6]) + '</span>';
+            else if (m[7]) {
+                if (JAVA_KEYWORDS.has(m[7]))    out += '<span class="tok-kw">' + m[7] + '</span>';
+                else if (JAVA_TYPES.has(m[7]))  out += '<span class="tok-ty">' + m[7] + '</span>';
+                else                            out += escapeHtml(m[7]);
+            }
+            else if (m[8]) out += escapeHtml(m[8]);
+            else if (m[9]) out += m[9];
+        }
+        return out;
+    }
+
+    document.querySelectorAll('pre code.lang-java, pre code.language-java').forEach(function(el) {
+        var raw = el.textContent;
+        el.setAttribute('data-raw', raw);
+        el.innerHTML = highlight(raw);
+    });
+})();
+</script>
+<script>
+(function() {
+    document.querySelectorAll('.code-wrap').forEach(function(wrap) {
+        var btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', function() {
+            var code = wrap.querySelector('pre code');
+            var text = code.getAttribute('data-raw') || code.textContent;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(showCopied).catch(fallbackCopy);
+            } else {
+                fallbackCopy();
+            }
+            function fallbackCopy() {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); showCopied(); }
+                catch (e) { btn.textContent = 'Error'; }
+                document.body.removeChild(ta);
+            }
+            function showCopied() {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 1500);
+            }
+        });
+        wrap.appendChild(btn);
+    });
+})();
+</script>
+</body>
+</html>

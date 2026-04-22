@@ -13,7 +13,6 @@ import java.util.Scanner;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-
 public class Lab_3_2_ModernFileSystem {
 
     /* ---------- Shared scaffolding ---------- */
@@ -32,7 +31,12 @@ public class Lab_3_2_ModernFileSystem {
         if (Files.exists(WORK_DIR)) {
             try (Stream<Path> stream = Files.walk(WORK_DIR)) {
                 stream.sorted((a, b) -> b.getNameCount() - a.getNameCount())
-                      .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
+                        .forEach(p -> {
+                            try {
+                                Files.deleteIfExists(p);
+                            } catch (IOException ignored) {
+                            }
+                        });
             }
         }
         Files.createDirectories(WORK_DIR);
@@ -51,15 +55,15 @@ public class Lab_3_2_ModernFileSystem {
     /**
      * Builds a small directory tree under WORK_DIR for Activities 3 and 4:
      *
-     *   tree/
-     *     a.txt               (small)
-     *     b.log               (small)
-     *     sub1/
-     *       c.txt             (medium)
-     *       sub1a/
-     *         d.txt           (large)
-     *     sub2/
-     *       e.log             (large)
+     * tree/
+     * a.txt (small)
+     * b.log (small)
+     * sub1/
+     * c.txt (medium)
+     * sub1a/
+     * d.txt (large)
+     * sub2/
+     * e.log (large)
      *
      * Sizes are staggered so the size-threshold filter in Activity 4 has a
      * meaningful result.
@@ -69,111 +73,171 @@ public class Lab_3_2_ModernFileSystem {
         Files.createDirectories(root.resolve("sub1/sub1a"));
         Files.createDirectories(root.resolve("sub2"));
 
-        writeFile(root.resolve("a.txt"),              "a");                   // 1 byte
-        writeFile(root.resolve("b.log"),              "bb");                  // 2 bytes
-        writeFile(root.resolve("sub1/c.txt"),         "cccccccccc");          // 10 bytes
-        writeFile(root.resolve("sub1/sub1a/d.txt"),   "d".repeat(500));       // 500 bytes
-        writeFile(root.resolve("sub2/e.log"),         "e".repeat(500));       // 500 bytes
+        writeFile(root.resolve("a.txt"), "a"); // 1 byte
+        writeFile(root.resolve("b.log"), "bb"); // 2 bytes
+        writeFile(root.resolve("sub1/c.txt"), "cccccccccc"); // 10 bytes
+        writeFile(root.resolve("sub1/sub1a/d.txt"), "d".repeat(500)); // 500 bytes
+        writeFile(root.resolve("sub2/e.log"), "e".repeat(500)); // 500 bytes
         return root;
     }
 
-
-    /* ========================================================================
-     *  Activity 1: File.delete() vs Files.delete(Path)
-     *  -------------------------------------------------------------------
-     *  Same failure (missing file, non-empty directory). File returns a
-     *  boolean, Files throws a typed exception carrying the path.
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Activity 1: File.delete() vs Files.delete(Path)
+     * -------------------------------------------------------------------
+     * Same failure (missing file, non-empty directory). File returns a
+     * boolean, Files throws a typed exception carrying the path.
+     * ======================================================================
+     */
 
     // TODO 1.1 — create a method called ac1_deleteWithFile
-
+    private static void ac1_deleteWithFile(Path path) {
+        java.io.File legacy = path.toFile();
+        boolean result = legacy.delete();
+        System.out.println("  File.delete() on \"" + path.getFileName() + "\" returned: " + result);
+    }
 
     // TODO 1.2 — create a method called ac1_deleteWithFiles
-
+    private static void ac1_deleteWithFiles(Path path) {
+        try {
+            Files.delete(path);
+            System.out.println("  Files.delete() on \"" + path.getFileName() + "\" succeeded");
+        } catch (NoSuchFileException e) {
+            System.out.println("  NoSuchFileException: " + e.getFile());
+        } catch (DirectoryNotEmptyException e) {
+            System.out.println("  DirectoryNotEmptyException: " + e.getFile());
+        } catch (IOException e) {
+            System.out.println("  IOException: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+        }
+    }
 
     private static void activity1() throws IOException {
         System.out.println("\n=== Activity 1: File.delete() vs Files.delete(Path) ===");
         resetWorkDir();
 
-        Path missing    = WORK_DIR.resolve("does_not_exist.txt");
+        Path missing = WORK_DIR.resolve("does_not_exist.txt");
         Path nonEmptyDir = WORK_DIR.resolve("not_empty");
         Files.createDirectories(nonEmptyDir);
         writeFile(nonEmptyDir.resolve("child.txt"), "content");
 
         // TODO 1.3 — uncomment the four call lines below
-        // System.out.println("\n--- Part A: File.delete() on a missing file ---");
-        // ac1_deleteWithFile(missing);
-        //
-        // System.out.println("\n--- Part B: Files.delete() on the same missing file ---");
-        // ac1_deleteWithFiles(missing);
-        //
-        // System.out.println("\n--- Part C: Files.delete() on a non-empty directory ---");
-        // ac1_deleteWithFiles(nonEmptyDir);
+        System.out.println("\n--- Part A: File.delete() on a missing file ---");
+        ac1_deleteWithFile(missing);
+
+        System.out.println("\n--- Part B: Files.delete() on the same missing file ---");
+        ac1_deleteWithFiles(missing);
+
+        System.out.println("\n--- Part C: Files.delete() on a non-empty directory ---");
+        ac1_deleteWithFiles(nonEmptyDir);
     }
 
-
-    /* ========================================================================
-     *  Activity 2: renameTo vs Files.move
-     *  -------------------------------------------------------------------
-     *  renameTo is a single boolean. Files.move is typed exceptions.
-     *  ATOMIC_MOVE promises atomicity or throws, so you learn at the call
-     *  site whether the platform can honour your guarantee.
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Activity 2: renameTo vs Files.move
+     * -------------------------------------------------------------------
+     * renameTo is a single boolean. Files.move is typed exceptions.
+     * ATOMIC_MOVE promises atomicity or throws, so you learn at the call
+     * site whether the platform can honour your guarantee.
+     * ======================================================================
+     */
 
     // TODO 2.1 — create a method called ac2_renameWithFile
-
+    private static void ac2_renameWithFile(Path src, Path dst) {
+        boolean result = src.toFile().renameTo(dst.toFile());
+        System.out.println("  File.renameTo(\"" + dst.getFileName() + "\") returned: " + result);
+    }
 
     // TODO 2.2 — create a method called ac2_moveWithFiles
-
+    private static void ac2_moveWithFiles(Path src, Path dst) {
+        try {
+            Files.move(src, dst);
+            System.out
+                    .println("  Files.move(\"" + src.getFileName() + "\" -> \"" + dst.getFileName() + "\") succeeded");
+        } catch (IOException e) {
+            System.out.println("  Files.move failed: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+        }
+    }
 
     // TODO 2.3 — create a method called ac2_moveAtomic
-
+    private static void ac2_moveAtomic(Path src, Path dst) {
+        try {
+            Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE);
+            System.out.println("  Files.move(ATOMIC_MOVE) succeeded for \"" + dst.getFileName() + "\"");
+        } catch (AtomicMoveNotSupportedException e) {
+            System.out.println("  AtomicMoveNotSupportedException: " + e.getMessage());
+        } catch (IOException e) {
+            System.out.println("  IOException: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+        }
+    }
 
     private static void activity2() throws IOException {
         System.out.println("\n=== Activity 2: renameTo vs Files.move ===");
         resetWorkDir();
 
         // TODO 2.4 — uncomment the body below
-        // Path srcA = writeFile(WORK_DIR.resolve("a_source.txt"), "part A");
-        // Path dstA = WORK_DIR.resolve("a_renamed.txt");
-        //
-        // Path srcB = writeFile(WORK_DIR.resolve("b_source.txt"), "part B");
-        // Path dstB = WORK_DIR.resolve("b_moved.txt");
-        //
-        // Path srcC = writeFile(WORK_DIR.resolve("c_source.txt"), "part C");
-        // Path dstC = WORK_DIR.resolve("c_atomic_same_fs.txt");
-        //
-        // Path srcD = writeFile(WORK_DIR.resolve("d_source.txt"), "part D");
-        // Path dstD = Path.of(System.getProperty("java.io.tmpdir")).resolve("d_atomic_outside.txt");
-        //
-        // System.out.println("\n--- Part A: File.renameTo within the same directory ---");
-        // ac2_renameWithFile(srcA, dstA);
-        //
-        // System.out.println("\n--- Part B: Files.move with no options ---");
-        // ac2_moveWithFiles(srcB, dstB);
-        //
-        // System.out.println("\n--- Part C: Files.move with ATOMIC_MOVE, same filesystem ---");
-        // ac2_moveAtomic(srcC, dstC);
-        //
-        // System.out.println("\n--- Part D: Files.move with ATOMIC_MOVE, possibly different filesystem ---");
-        // ac2_moveAtomic(srcD, dstD);
-        // try { Files.deleteIfExists(dstD); } catch (IOException ignored) {}
+        Path srcA = writeFile(WORK_DIR.resolve("a_source.txt"), "part A");
+        Path dstA = WORK_DIR.resolve("a_renamed.txt");
+
+        Path srcB = writeFile(WORK_DIR.resolve("b_source.txt"), "part B");
+        Path dstB = WORK_DIR.resolve("b_moved.txt");
+
+        Path srcC = writeFile(WORK_DIR.resolve("c_source.txt"), "part C");
+        Path dstC = WORK_DIR.resolve("c_atomic_same_fs.txt");
+
+        Path srcD = writeFile(WORK_DIR.resolve("d_source.txt"), "part D");
+        Path dstD = Path.of(System.getProperty("java.io.tmpdir")).resolve("d_atomic_outside.txt");
+
+        System.out.println("\n--- Part A: File.renameTo within the same directory---");
+        ac2_renameWithFile(srcA, dstA);
+
+        System.out.println("\n--- Part B: Files.move with no options ---");
+        ac2_moveWithFiles(srcB, dstB);
+
+        System.out.println("\n--- Part C: Files.move with ATOMIC_MOVE, same filesystem ---");
+        ac2_moveAtomic(srcC, dstC);
+
+        System.out.println("\n--- Part D: Files.move with ATOMIC_MOVE, possibly different filesystem ---");
+        ac2_moveAtomic(srcD, dstD);
+        try {
+            Files.deleteIfExists(dstD);
+        } catch (IOException ignored) {
+        }
     }
 
-
-    /* ========================================================================
-     *  Activity 3: Walking a tree with Files.walk
-     *  -------------------------------------------------------------------
-     *  Hand-rolled File.listFiles recursion vs one Files.walk stream.
-     *  Same answer, dramatically less code, composes with everything else
-     *  in the Streams API.
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Activity 3: Walking a tree with Files.walk
+     * -------------------------------------------------------------------
+     * Hand-rolled File.listFiles recursion vs one Files.walk stream.
+     * Same answer, dramatically less code, composes with everything else
+     * in the Streams API.
+     * ======================================================================
+     */
 
     // TODO 3.1 — create a method called ac3_walkLegacy
-
+    private static List<java.io.File> ac3_walkLegacy(java.io.File dir) {
+        List<java.io.File> results = new ArrayList<>();
+        java.io.File[] children = dir.listFiles();
+        if (children == null)
+            return results; // null on I/O error or not-a-directory
+        for (java.io.File child : children) {
+            if (child.isDirectory()) {
+                results.addAll(ac3_walkLegacy(child));
+            } else {
+                results.add(child);
+            }
+        }
+        return results;
+    }
 
     // TODO 3.2 — create a method called ac3_walkNio
-
+    private static List<Path> ac3_walkNio(Path root) throws IOException {
+        try (Stream<Path> stream = Files.walk(root)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .collect(Collectors.toList());
+        }
+    }
 
     private static void activity3() throws IOException {
         System.out.println("\n=== Activity 3: Walking a tree with Files.walk ===");
@@ -181,57 +245,83 @@ public class Lab_3_2_ModernFileSystem {
         Path root = ac3_buildTree();
 
         // TODO 3.3 — uncomment the two call groups below
-        // System.out.println("\n--- Part A: legacy File.listFiles recursion ---");
-        // List<java.io.File> legacy = ac3_walkLegacy(root.toFile());
-        // System.out.println("  files found (legacy): " + legacy.size());
-        // legacy.forEach(f -> System.out.println("    " + f.getName()));
-        //
-        // System.out.println("\n--- Part B: Files.walk stream ---");
-        // List<Path> nio = ac3_walkNio(root);
-        // System.out.println("  files found (NIO):    " + nio.size());
-        // nio.forEach(p -> System.out.println("    " + p.getFileName()));
+        System.out.println("\n--- Part A: legacy File.listFiles recursion ---");
+        List<java.io.File> legacy = ac3_walkLegacy(root.toFile());
+        System.out.println(" files found (legacy): " + legacy.size());
+        legacy.forEach(f -> System.out.println(" " + f.getName()));
+
+        System.out.println("\n--- Part B: Files.walk stream ---");
+        List<Path> nio = ac3_walkNio(root);
+        System.out.println(" files found (NIO): " + nio.size());
+        nio.forEach(p -> System.out.println(" " + p.getFileName()));
     }
 
-
-    /* ========================================================================
-     *  Activity 4: Files.find with a BiPredicate
-     *  -------------------------------------------------------------------
-     *  walk().filter(p -> Files.size(p)...) issues two stats per file.
-     *  find(root, depth, (p, attrs) -> ...) issues one. Same result, half
-     *  the syscalls.
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Activity 4: Files.find with a BiPredicate
+     * -------------------------------------------------------------------
+     * walk().filter(p -> Files.size(p)...) issues two stats per file.
+     * find(root, depth, (p, attrs) -> ...) issues one. Same result, half
+     * the syscalls.
+     * ======================================================================
+     */
 
     // TODO 4.1 — create a method called ac4_findWithWalk
-
+    private static long[] ac4_findWithWalk(Path root, long thresholdBytes) throws IOException {
+        long[] counters = new long[] { 0, 0 }; // [ matches, size_lookups ]
+        try (Stream<Path> stream = Files.walk(root)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(p -> {
+                        counters[1]++; // each filter invocation = one extra stat
+                        try {
+                            return Files.size(p) > thresholdBytes;
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    })
+                    .forEach(p -> counters[0]++);
+        }
+        return counters;
+    }
 
     // TODO 4.2 — create a method called ac4_findWithFind
-
+    private static long[] ac4_findWithFind(Path root, long thresholdBytes) throws IOException {
+        long[] counters = new long[] { 0, 0 }; // [ matches, predicate_invocations ]
+        try (Stream<Path> stream = Files.find(root, Integer.MAX_VALUE, (p, attrs) -> {
+            counters[1]++;
+            return attrs.isRegularFile() && attrs.size() > thresholdBytes;
+        })) {
+            stream.forEach(p -> counters[0]++);
+        }
+        return counters;
+    }
 
     private static void activity4() throws IOException {
         System.out.println("\n=== Activity 4: Files.find with a BiPredicate ===");
         resetWorkDir();
         Path root = ac3_buildTree();
-        long threshold = 100;                           // bytes
+        long threshold = 100; // bytes
 
         // TODO 4.3 — uncomment the body below
-        // System.out.println("\n--- Part A: Files.walk + filter on Files.size ---");
-        // long[] walkResult = ac4_findWithWalk(root, threshold);
-        // System.out.println("  matches:                 " + walkResult[0]);
-        // System.out.println("  Files.size() invocations: " + walkResult[1]);
-        //
-        // System.out.println("\n--- Part B: Files.find with BiPredicate<Path, BasicFileAttributes> ---");
-        // long[] findResult = ac4_findWithFind(root, threshold);
-        // System.out.println("  matches:                 " + findResult[0]);
-        // System.out.println("  predicate invocations:   " + findResult[1]);
-        //
-        // System.out.println("\n  walk visited " + walkResult[1] + " candidates and stat-ed each one again for size.");
-        // System.out.println("  find visited " + findResult[1] + " candidates using attributes already in hand.");
+        System.out.println("\n--- Part A: Files.walk + filter on Files.size ---");
+        long[] walkResult = ac4_findWithWalk(root, threshold);
+        System.out.println(" matches: " + walkResult[0]);
+        System.out.println(" Files.size() invocations: " + walkResult[1]);
+        
+        System.out.println("\n--- Part B: Files.find with BiPredicate<Path,BasicFileAttributes> ---");
+        long[] findResult = ac4_findWithFind(root, threshold);
+        System.out.println(" matches: " + findResult[0]);
+        System.out.println(" predicate invocations: " + findResult[1]);
+        
+        System.out.println("\n walk visited " + walkResult[1] + " candidates and stat-ed each one again for size.");
+        System.out.println(" find visited " + findResult[1] + " candidates using attributes already in hand.");
     }
 
-
-    /* ========================================================================
-     *  Menu
-     * ====================================================================== */
+    /*
+     * ========================================================================
+     * Menu
+     * ======================================================================
+     */
 
     public static void main(String[] args) throws IOException {
         try (Scanner in = new Scanner(System.in)) {
@@ -244,25 +334,28 @@ public class Lab_3_2_ModernFileSystem {
                 System.out.println(" 3) Walking a tree with Files.walk");
                 System.out.println(" 4) Files.find with a BiPredicate");
                 System.out.println(" q) Quit");
-                System.out.print  (" > ");
+                System.out.print(" > ");
 
                 String choice = in.hasNextLine() ? in.nextLine().trim() : "q";
 
                 switch (choice) {
                     // TODO 1.3 — uncomment the case below when Activity 1 is implemented
-                    // case "1" -> activity1();
+                    case "1" -> activity1();
 
                     // TODO 2.4 — uncomment the case below when Activity 2 is implemented
-                    // case "2" -> activity2();
+                    case "2" -> activity2();
 
                     // TODO 3.3 — uncomment the case below when Activity 3 is implemented
-                    // case "3" -> activity3();
+                    case "3" -> activity3();
 
                     // TODO 4.3 — uncomment the case below when Activity 4 is implemented
-                    // case "4" -> activity4();
+                    case "4" -> activity4();
 
-                    case "q", "Q" -> { cleanup(); return; }
-                    default       -> System.out.println("  unknown choice: " + choice);
+                    case "q", "Q" -> {
+                        cleanup();
+                        return;
+                    }
+                    default -> System.out.println("  unknown choice: " + choice);
                 }
             }
         }
@@ -274,9 +367,15 @@ public class Lab_3_2_ModernFileSystem {
             if (Files.exists(WORK_DIR)) {
                 try (Stream<Path> stream = Files.walk(WORK_DIR)) {
                     stream.sorted((a, b) -> b.getNameCount() - a.getNameCount())
-                          .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
+                            .forEach(p -> {
+                                try {
+                                    Files.deleteIfExists(p);
+                                } catch (IOException ignored) {
+                                }
+                            });
                 }
             }
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
     }
 }

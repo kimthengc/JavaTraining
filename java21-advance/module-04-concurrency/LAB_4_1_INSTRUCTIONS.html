@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab 4.1 — Shared State &amp;amp; Memory Visibility</title>
+<style>
+:root {
+    --accent:        #0E7C86;
+    --accent-soft:   #2EB8B8;
+    --accent-deeper: #0A5E66;
+    --accent-tint:   #E8F6F6;
+    --accent-faint:  #F3FAFB;
+
+    --text-body:     #1F2937;
+    --text-muted:    #6B7280;
+    --border-soft:   #E5E7EB;
+    --code-bg:       #FAFBFC;
+
+    --syn-keyword:  #1E40AF;
+    --syn-type:     #0E7C86;
+    --syn-string:   #15803D;
+    --syn-comment:  #94A3B8;
+    --syn-number:   #7C3AED;
+    --syn-annot:    #BE185D;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; }
+
+/* Fixed Copilot-gradient bar at the top of every page */
+body::before {
+    content: "";
+    display: block;
+    height: 3px;
+    width: 100%;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+}
+
+body {
+    font-family: "Segoe UI", "Open Sans", "Helvetica", "Arial", sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--text-body);
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem 4rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: "Segoe UI Semibold", "Segoe UI", "Open Sans", sans-serif;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1.3;
+    margin-top: 1.6em;
+    margin-bottom: 0.5em;
+}
+h1 {
+    font-size: 2em;
+    margin-top: 0;
+    padding-bottom: 0.4em;
+    position: relative;
+}
+h1::after {
+    content: "";
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 0.4em;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    opacity: 0.8;
+}
+h2 { font-size: 1.4em; border-bottom: 1px solid var(--border-soft); padding-bottom: 0.2em; }
+h3 { font-size: 1.1em; color: var(--accent-deeper); }
+
+p { margin: 0.7em 0; }
+
+a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+a:hover { border-bottom-style: solid; color: var(--accent-deeper); }
+
+ul, ol { margin: 0.7em 0; padding-left: 1.8em; }
+li { margin: 0.3em 0; }
+ul li::marker { color: var(--accent); }
+ol li::marker { color: var(--accent); font-weight: 600; }
+
+strong { color: #111827; font-weight: 600; }
+
+:not(pre) > code {
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    font-size: 0.88em;
+    background: var(--accent-tint);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent-deeper);
+}
+
+.code-wrap {
+    position: relative;
+    margin: 1.2em 0;
+    background: var(--code-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    overflow: hidden;
+    padding-left: 3px;
+}
+.code-wrap::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+}
+
+.code-wrap pre {
+    margin: 0;
+    padding: 0.9em 1em;
+    padding-right: 5em;
+    font-size: 13.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    color: var(--text-body);
+    white-space: pre;
+}
+.code-wrap pre code {
+    font-family: inherit;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    padding: 4px 12px;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: #fff;
+    border: 1px solid var(--accent-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    opacity: 0.8;
+}
+.copy-btn:hover  { opacity: 1; background: var(--accent-tint); }
+.copy-btn:active { transform: translateY(1px); }
+.copy-btn.copied { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.tok-kw  { color: var(--syn-keyword); font-weight: 600; }
+.tok-ty  { color: var(--syn-type); }
+.tok-str { color: var(--syn-string); }
+.tok-cmt { color: var(--syn-comment); font-style: italic; }
+.tok-num { color: var(--syn-number); }
+.tok-ann { color: var(--syn-annot); }
+
+blockquote {
+    border-left: 4px solid var(--accent-soft);
+    background: var(--accent-faint);
+    color: #374151;
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    font-style: italic;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 0.93em;
+}
+th, td {
+    border: 1px solid var(--border-soft);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: var(--accent);
+    color: #fff;
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-weight: 600;
+}
+tr:nth-child(even) td { background: var(--accent-faint); }
+
+hr { border: none; border-top: 1px solid var(--border-soft); margin: 2em 0; }
+
+img { max-width: 100%; height: auto; }
+
+@media print {
+    body::before { display: none; }
+    body { max-width: none; padding: 1cm; font-size: 11pt; }
+    .copy-btn { display: none; }
+    .code-wrap { page-break-inside: avoid; }
+    h1, h2, h3 { page-break-after: avoid; }
+    a { border-bottom: none; color: inherit; }
+}
+</style>
+</head>
+<body>
+<h1>Lab 4.1 — Shared State &amp; Memory Visibility</h1>
+<p><strong>Module:</strong> 4 — Concurrency Fundamentals &amp; Async Architecture
+<strong>Files:</strong> <code>Lab_4_1_SharedState.java</code>
+<strong>Compile:</strong> <code>javac Lab_4_1_SharedState.java</code>
+<strong>Run:</strong> <code>java Lab_4_1_SharedState</code></p>
+<hr />
+<h2>Activity 1: The Lost Update</h2>
+<p><em>The Trap</em> — Most developers can recite "<code>counter++</code> isn't atomic" from memory. Far fewer have ever watched their own terminal print the wrong number. This activity closes that gap. You will run a two-thread increment loop, see the final count come out wrong, and then fix it with <code>synchronized</code>. A subtle point surfaces immediately: the shared counter is declared <code>volatile</code>, and the race happens anyway. <code>volatile</code> gives you visibility, not atomicity. This distinction is Activity 2's subject; here it protects us from a JIT optimisation that would otherwise narrow the race window and hide the bug on repeated runs.</p>
+<p><code>counter++</code> looks like one operation in source code. It compiles to three: read the field into a register, add one, write the register back to the field. Any other thread can slip in between the read and the write, read the same stale value, and both threads end up writing the same incremented number back. One increment silently vanishes. Over 200,000 iterations across two threads, you will lose somewhere between a handful and tens of thousands of increments, and the exact number changes every run because it depends on how the OS scheduler interleaves the two threads. Without <code>volatile</code>, the JIT would eventually optimise the field access into a register-local variable and close the race window — the bug would still be there, just unreachable. Marking the field <code>volatile</code> forces a real memory read and a real memory write on every increment, keeping the race window wide.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Open <code>Lab_4_1_SharedState.java</code>.</p>
+</li>
+<li>
+<p>Read the scaffolding section at the top. Note the <code>ac1_counter</code> field declared as <code>volatile int</code>, and the <code>INCREMENTS_PER_THREAD</code> constant set to 100,000. Two threads will each run that many increments, so the expected total is 200,000. The inline comment explains why <code>volatile</code> is here: to keep the race window observable across repeated runs. It does not fix the race — the next step demonstrates that.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 1.1</strong>.</p>
+<p>Create a method called <code>ac1_increment</code> that loops <code>INCREMENTS_PER_THREAD</code> times and increments <code>ac1_counter</code> on each iteration. No locking. No printing inside the loop — printing is synchronised internally and would mask the bug.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static void ac1_increment() {
+    for (int i = 0; i &lt; INCREMENTS_PER_THREAD; i++) {
+        ac1_counter++;
+    }
+}</code></pre></div>
+
+<ol start="5">
+<li>
+<p>Locate <strong>TODO 1.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity1()</code> method body.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "1" -&gt; activity1();</code>.</p>
+</li>
+<li>
+<p>Compile and run. Select <strong>1</strong>.</p>
+</li>
+<li>
+<p>Observe the final count. It is not 200,000. Run it <strong>three or four more times</strong> without changing anything. Each run produces a different wrong number.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 1.3</strong>.</p>
+<p>Replace the body of <code>ac1_increment</code> with a version that wraps the increment in a <code>synchronized</code> block on a shared lock object. The scaffolding has provided <code>AC1_LOCK</code> for exactly this purpose.</p>
+</li>
+<li>
+<p>Paste this snippet, replacing the existing <code>ac1_increment</code> method:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static void ac1_increment() {
+    for (int i = 0; i &lt; INCREMENTS_PER_THREAD; i++) {
+        synchronized (AC1_LOCK) {
+            ac1_counter++;
+        }
+    }
+}</code></pre></div>
+
+<ol start="12">
+<li>
+<p>Compile and run. Select <strong>1</strong>.</p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li>Before the fix, the count was wrong and different every run. The OS scheduler interleaves the two threads non-deterministically, so the exact number of lost updates is unpredictable.</li>
+<li><code>volatile</code> did not save you. The field was volatile from the start, and the race happened anyway. <code>volatile</code> makes writes visible to other threads — it does not make <code>read-modify-write</code> atomic.</li>
+<li>After the <code>synchronized</code> fix, the count is exactly 200,000 every run. <code>synchronized</code> makes the read-modify-write sequence atomic with respect to any other thread holding the same lock.</li>
+<li>The fix did not remove the race — it serialised the critical section. Only one thread can be inside the <code>synchronized</code> block at a time.</li>
+<li><strong>Question:</strong> The fix works, but what does it cost? If this counter were incremented a billion times a second across 32 threads, would you still reach for <code>synchronized</code>? What would you reach for instead, and why?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Activity 2: The Invisible Write</h2>
+<p><em>The False Promise</em> — "Effectively final" protects a variable reference. It does not protect what threads can <em>see</em> about a shared field. A writer thread can set a flag to <code>true</code>, finish, exit and a reader thread in another core can loop on that flag forever, reading a stale <code>false</code> from its own view of the variable. The compiler will not warn you. The code will compile, run, and hang. This activity makes that hang happen, on purpose, in your terminal.</p>
+<p>Most explanations blame CPU caches. That is not the real culprit on modern x86 hardware, which has a strong memory model that usually makes cross-core writes visible quickly. The actual villain is the JIT compiler. When the JIT sees a non-volatile field read inside a tight loop with no other memory operations, it proves that nothing in the loop body modifies the field and hoists the read out of the loop entirely. Your <code>while (!stopRequested) { ... }</code> gets rewritten as roughly <code>if (!stopRequested) while (true) { ... }</code>. No amount of flag-setting from the writer thread will ever reach the reader, because the reader is no longer reading. Marking the field <code>volatile</code> tells the JIT "you may not optimise reads of this field" — the read goes back into the loop body, the reader sees the update, and the thread exits.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>In <code>Lab_4_1_SharedState.java</code>, read the Activity 2 scaffolding. Note the <code>ac2_stopRequested</code> field declared as a plain <code>boolean</code> — no <code>volatile</code> keyword. There is also a <code>WATCHDOG_TIMEOUT_MS</code> constant set to 3000. The reader thread is started as a daemon, and <code>activity2()</code> waits at most 3 seconds for it to exit on its own. If the reader is still running after that, the method returns anyway and prints a diagnostic. The reader keeps spinning in the background, but because it is a daemon thread, it will not prevent the JVM from exiting when you quit the lab.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 2.1</strong>.</p>
+<p>Create two <code>Runnable</code> fields: <code>ac2_reader</code> loops tightly on <code>!ac2_stopRequested</code> and counts its iterations into <code>ac2_iterations</code>. <code>ac2_writer</code> sleeps for 500ms, then sets <code>ac2_stopRequested = true</code>.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static final Runnable ac2_reader = () -&gt; {
+    long iterations = 0;
+    while (!ac2_stopRequested) {
+        iterations++;
+    }
+    ac2_iterations = iterations;
+};
+
+private static final Runnable ac2_writer = () -&gt; {
+    try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+    ac2_stopRequested = true;
+    System.out.println(&quot;  [writer] flag set at t=500ms&quot;);
+};</code></pre></div>
+
+<ol start="4">
+<li>
+<p>Locate <strong>TODO 2.2</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity2()</code> method body.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "2" -&gt; activity2();</code>.</p>
+</li>
+<li>
+<p>Compile and run. Select <strong>2</strong>.</p>
+</li>
+<li>
+<p>Observe: the writer reports setting the flag at 500ms. The reader does not exit. After 3000ms, <code>activity2()</code> gives up waiting and prints <code>reader STILL RUNNING after 3000ms — JIT hoisted the read, writer's flag is invisible</code>. The menu returns. The reader is still spinning in the background, but as a daemon thread it imposes no cost on lab completion and will die when the JVM exits.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 2.3</strong>.</p>
+<p>Change the <code>ac2_stopRequested</code> field declaration to add the <code>volatile</code> modifier. This is a one-word edit to the existing field, not a new paste — the TODO marker sits on the line above the field.</p>
+</li>
+<li>
+<p>Paste this snippet, replacing the existing declaration:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static volatile boolean ac2_stopRequested = false;</code></pre></div>
+
+<ol start="11">
+<li>
+<p>Compile and run. Select <strong>2</strong>.</p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li>Before <code>volatile</code>: the reader never exited. The writer's <code>stopRequested = true</code> was invisible to the reader's hoisted view of the field, and the activity had to abandon the reader after 3 seconds.</li>
+<li>After <code>volatile</code>: the reader exits within milliseconds of the writer's set. Elapsed time is approximately 500ms — the 500ms sleep plus negligible loop overhead.</li>
+<li>The JIT is allowed to hoist reads of non-volatile fields out of tight loops. <code>volatile</code> forbids that optimisation and inserts the memory barriers needed to make the write visible across threads.</li>
+<li><strong>Question:</strong> <code>synchronized</code> would also have fixed this. Why reach for <code>volatile</code> instead? What is the cost difference, and what does <code>volatile</code> explicitly <em>not</em> give you that <code>synchronized</code> does?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Activity 3: Three Ways to Be Thread-Safe</h2>
+<p><em>The Ambiguity</em> — <code>synchronized</code>, <code>volatile</code>, and <code>AtomicInteger</code> all claim to make concurrent code "thread-safe." They are not interchangeable. Each has a specific job, a specific cost, and a specific failure mode when misapplied. This activity runs the same increment workload against three different implementations and measures both correctness and throughput, so you can see the trade-offs instead of arguing about them.</p>
+<p>The naive version has no synchronisation at all and will produce a wrong answer — often quickly, sometimes not, because cache-coherency traffic between cores is not free even without a lock. </p>
+<p>The synchronised version wraps every method in a mutex. </p>
+<p>The atomic version uses a hardware compare-and-swap instruction under the hood — no lock, just a CPU-level atomic operation that either succeeds in one step or retries on contention. </p>
+<p>Under high contention on a single hot variable, synchronised and atomic perform within the same order of magnitude, and which one wins on any given run depends on thread count, core count, and JIT state. </p>
+<p>Run the activity several times and you will see the two "correct" timings trade places. The lesson is not "atomics win." The lesson is that thread-safety is a design decision with a cost curve: <code>synchronized</code> wins when you need compound invariants over multiple fields, atomics win when contention is low and the operation is genuinely single-variable, and "it'll figure itself out" wins nothing.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Read the Activity 3 scaffolding. Note the three empty class stubs: <code>NaiveCounter</code>, <code>SynchronisedCounter</code>, <code>AtomicCounter</code>, all implementing a shared <code>Counter</code> interface with <code>increment()</code> and <code>get()</code>. The benchmark workload is 8 threads, 250,000 increments each, expected total 2,000,000.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 3.1</strong>.</p>
+<p>Fill in the three counter implementations. <code>NaiveCounter</code> uses a plain <code>int</code>. <code>SynchronisedCounter</code> uses a plain <code>int</code> but both methods are <code>synchronized</code>. <code>AtomicCounter</code> wraps an <code>AtomicInteger</code>. These three are a single cohesive paste — they are meant to be read side by side as a comparison.</p>
+</li>
+<li>
+<p>Paste this snippet, replacing the three empty class bodies:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">static final class NaiveCounter implements Counter {
+    private int value = 0;
+    public void increment() { value++; }
+    public int get() { return value; }
+}
+
+static final class SynchronisedCounter implements Counter {
+    private int value = 0;
+    public synchronized void increment() { value++; }
+    public synchronized int get() { return value; }
+}
+
+static final class AtomicCounter implements Counter {
+    private final AtomicInteger value = new AtomicInteger(0);
+    public void increment() { value.incrementAndGet(); }
+    public int get() { return value.get(); }
+}</code></pre></div>
+
+<ol start="4">
+<li>
+<p>Locate <strong>TODO 3.2</strong>.</p>
+<p>Create a method called <code>ac3_benchmark</code> that runs a given <code>Counter</code> with 8 threads, each performing 250,000 increments, and returns an array <code>{finalCount, elapsedMillis}</code>. The scaffolding has constants <code>AC3_THREADS</code> and <code>AC3_INCREMENTS_PER_THREAD</code> already defined.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static long[] ac3_benchmark(Counter counter) throws InterruptedException {
+    Thread[] threads = new Thread[AC3_THREADS];
+    long start = System.nanoTime();
+
+    for (int i = 0; i &lt; AC3_THREADS; i++) {
+        threads[i] = new Thread(() -&gt; {
+            for (int j = 0; j &lt; AC3_INCREMENTS_PER_THREAD; j++) {
+                counter.increment();
+            }
+        });
+        threads[i].start();
+    }
+
+    for (Thread t : threads) t.join();
+
+    long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+    return new long[] { counter.get(), elapsedMs };
+}</code></pre></div>
+
+<ol start="6">
+<li>
+<p>Locate <strong>TODO 3.3</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity3()</code> method body.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "3" -&gt; activity3();</code>.</p>
+</li>
+<li>
+<p>Compile and run. Select <strong>3</strong>.</p>
+</li>
+<li>
+<p>Observe the printed table. Three rows, three outcomes:</p>
+<ul>
+<li><code>NaiveCounter</code>: final count is less than 2,000,000, usually far less. Speed varies — not always the fastest, because cache-line contention costs real cycles even without a lock.</li>
+<li><code>SynchronisedCounter</code>: exactly 2,000,000. Timing competitive with the atomic version under this workload.</li>
+<li><code>AtomicCounter</code>: exactly 2,000,000. Timing competitive with synchronised — the two trade places across runs. CAS(Compare and Swap) avoids lock acquisition but pays in retries when contention is high.</li>
+<li>Run Activity 3 several times. Notice that which of the two correct implementations is "faster" changes from run to run. Neither has a decisive edge on this workload.</li>
+<li><strong>Question:</strong>  If the two correct implementations perform within noise of each other here, when does the choice between them matter? Design two scenarios: one where <code>synchronized</code> is clearly the right pick, and one where <code>AtomicInteger</code> is clearly the right pick. What property of the workload decides?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Lab Complete</h2>
+<p>These three activities cover three distinct failure modes: atomicity (Activity 1, <code>synchronized</code> fixes it), visibility (Activity 2, <code>volatile</code> fixes it), and the design choice between them (Activity 3, pick the tool that matches the critical section). <code>volatile</code> gives you visibility without atomicity. <code>synchronized</code> gives you both, at a cost. Atomics give you both for a single variable, cheaply. There is no single right answer — there is a trade-off curve, and your job is to know where on it you are sitting.</p>
+<script>
+(function() {
+    var JAVA_KEYWORDS = new Set([
+        'abstract','assert','break','case','catch','class','continue','default',
+        'do','else','enum','extends','final','finally','for','goto','if',
+        'implements','import','instanceof','interface','native','new','package',
+        'private','protected','public','return','static','strictfp','super',
+        'switch','synchronized','this','throw','throws','transient','try',
+        'volatile','while','true','false','null','var','record','sealed',
+        'permits','non-sealed','yield'
+    ]);
+    var JAVA_TYPES = new Set([
+        'int','long','short','byte','char','boolean','float','double','void',
+        'String','Integer','Long','Boolean','Object','List','Map','Set',
+        'Thread','Runnable','Exception','RuntimeException','InterruptedException',
+        'AtomicInteger','AtomicLong','AtomicBoolean','AtomicReference',
+        'ConcurrentHashMap','CompletableFuture','Future','ExecutorService',
+        'Executors','System','Math'
+    ]);
+
+    function escapeHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function highlight(src) {
+        var re = /(\/\*[\s\S]*?\*\/)|(\/\/[^\n]*)|("(?:\\.|[^"\\])*")|('(?:\\.|[^'\\])*')|(@[A-Za-z_][A-Za-z0-9_]*)|(\b\d[\d_]*(?:\.\d[\d_]*)?[fFdDlL]?\b)|([A-Za-z_][A-Za-z0-9_]*)|([^A-Za-z0-9_\s]+)|(\s+)/g;
+        var out = '';
+        var m;
+        while ((m = re.exec(src)) !== null) {
+            if (m[1])      out += '<span class="tok-cmt">' + escapeHtml(m[1]) + '</span>';
+            else if (m[2]) out += '<span class="tok-cmt">' + escapeHtml(m[2]) + '</span>';
+            else if (m[3]) out += '<span class="tok-str">' + escapeHtml(m[3]) + '</span>';
+            else if (m[4]) out += '<span class="tok-str">' + escapeHtml(m[4]) + '</span>';
+            else if (m[5]) out += '<span class="tok-ann">' + escapeHtml(m[5]) + '</span>';
+            else if (m[6]) out += '<span class="tok-num">' + escapeHtml(m[6]) + '</span>';
+            else if (m[7]) {
+                if (JAVA_KEYWORDS.has(m[7]))    out += '<span class="tok-kw">' + m[7] + '</span>';
+                else if (JAVA_TYPES.has(m[7]))  out += '<span class="tok-ty">' + m[7] + '</span>';
+                else                            out += escapeHtml(m[7]);
+            }
+            else if (m[8]) out += escapeHtml(m[8]);
+            else if (m[9]) out += m[9];
+        }
+        return out;
+    }
+
+    document.querySelectorAll('pre code.lang-java, pre code.language-java').forEach(function(el) {
+        var raw = el.textContent;
+        el.setAttribute('data-raw', raw);
+        el.innerHTML = highlight(raw);
+    });
+})();
+</script>
+<script>
+(function() {
+    document.querySelectorAll('.code-wrap').forEach(function(wrap) {
+        var btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', function() {
+            var code = wrap.querySelector('pre code');
+            var text = code.getAttribute('data-raw') || code.textContent;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(showCopied).catch(fallbackCopy);
+            } else {
+                fallbackCopy();
+            }
+            function fallbackCopy() {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); showCopied(); }
+                catch (e) { btn.textContent = 'Error'; }
+                document.body.removeChild(ta);
+            }
+            function showCopied() {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 1500);
+            }
+        });
+        wrap.appendChild(btn);
+    });
+})();
+</script>
+</body>
+</html>

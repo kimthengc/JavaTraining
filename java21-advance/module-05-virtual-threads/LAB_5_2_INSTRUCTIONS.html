@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab 5.2 — Structured Concurrency with Loom</title>
+<style>
+:root {
+    --accent:        #0E7C86;
+    --accent-soft:   #2EB8B8;
+    --accent-deeper: #0A5E66;
+    --accent-tint:   #E8F6F6;
+    --accent-faint:  #F3FAFB;
+
+    --text-body:     #1F2937;
+    --text-muted:    #6B7280;
+    --border-soft:   #E5E7EB;
+    --code-bg:       #FAFBFC;
+
+    --syn-keyword:  #1E40AF;
+    --syn-type:     #0E7C86;
+    --syn-string:   #15803D;
+    --syn-comment:  #94A3B8;
+    --syn-number:   #7C3AED;
+    --syn-annot:    #BE185D;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; }
+
+/* Fixed Copilot-gradient bar at the top of every page */
+body::before {
+    content: "";
+    display: block;
+    height: 3px;
+    width: 100%;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+}
+
+body {
+    font-family: "Segoe UI", "Open Sans", "Helvetica", "Arial", sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--text-body);
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem 4rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: "Segoe UI Semibold", "Segoe UI", "Open Sans", sans-serif;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1.3;
+    margin-top: 1.6em;
+    margin-bottom: 0.5em;
+}
+h1 {
+    font-size: 2em;
+    margin-top: 0;
+    padding-bottom: 0.4em;
+    position: relative;
+}
+h1::after {
+    content: "";
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 0.4em;
+    background: linear-gradient(90deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+    opacity: 0.8;
+}
+h2 { font-size: 1.4em; border-bottom: 1px solid var(--border-soft); padding-bottom: 0.2em; }
+h3 { font-size: 1.1em; color: var(--accent-deeper); }
+
+p { margin: 0.7em 0; }
+
+a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+a:hover { border-bottom-style: solid; color: var(--accent-deeper); }
+
+ul, ol { margin: 0.7em 0; padding-left: 1.8em; }
+li { margin: 0.3em 0; }
+ul li::marker { color: var(--accent); }
+ol li::marker { color: var(--accent); font-weight: 600; }
+
+strong { color: #111827; font-weight: 600; }
+
+:not(pre) > code {
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    font-size: 0.88em;
+    background: var(--accent-tint);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent-deeper);
+}
+
+.code-wrap {
+    position: relative;
+    margin: 1.2em 0;
+    background: var(--code-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    overflow: hidden;
+    padding-left: 3px;
+}
+.code-wrap::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, #4A90E2 0%, #2EB8B8 20%, #5CC88F 40%, #E8C547 60%, #F08A6E 80%, #D46BAE 100%);
+}
+
+.code-wrap pre {
+    margin: 0;
+    padding: 0.9em 1em;
+    padding-right: 5em;
+    font-size: 13.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Courier New", monospace;
+    color: var(--text-body);
+    white-space: pre;
+}
+.code-wrap pre code {
+    font-family: inherit;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    padding: 4px 12px;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: #fff;
+    border: 1px solid var(--accent-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    opacity: 0.8;
+}
+.copy-btn:hover  { opacity: 1; background: var(--accent-tint); }
+.copy-btn:active { transform: translateY(1px); }
+.copy-btn.copied { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.tok-kw  { color: var(--syn-keyword); font-weight: 600; }
+.tok-ty  { color: var(--syn-type); }
+.tok-str { color: var(--syn-string); }
+.tok-cmt { color: var(--syn-comment); font-style: italic; }
+.tok-num { color: var(--syn-number); }
+.tok-ann { color: var(--syn-annot); }
+
+blockquote {
+    border-left: 4px solid var(--accent-soft);
+    background: var(--accent-faint);
+    color: #374151;
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    font-style: italic;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    font-size: 0.93em;
+}
+th, td {
+    border: 1px solid var(--border-soft);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: var(--accent);
+    color: #fff;
+    font-family: "Segoe UI Semibold", sans-serif;
+    font-weight: 600;
+}
+tr:nth-child(even) td { background: var(--accent-faint); }
+
+hr { border: none; border-top: 1px solid var(--border-soft); margin: 2em 0; }
+
+img { max-width: 100%; height: auto; }
+
+@media print {
+    body::before { display: none; }
+    body { max-width: none; padding: 1cm; font-size: 11pt; }
+    .copy-btn { display: none; }
+    .code-wrap { page-break-inside: avoid; }
+    h1, h2, h3 { page-break-after: avoid; }
+    a { border-bottom: none; color: inherit; }
+}
+</style>
+</head>
+<body>
+<h1>Lab 5.2 — Structured Concurrency with Loom</h1>
+<p><strong>Module:</strong> 5 — Virtual Threads &amp; Project Loom
+<strong>Files:</strong> <code>Lab_5_2_StructuredConcurrency.java</code></p>
+<blockquote>
+<p><strong>Preview-flag callout</strong></p>
+<p>Both <code>ScopedValue</code> (JEP 446) and <code>StructuredTaskScope</code> (JEP 453) are <strong>preview APIs</strong> in Java 21. The compiler and the runtime both refuse to touch preview code unless explicitly told it's allowed. Compile and run with:</p>
+<ul>
+<li><code>javac --enable-preview --release 21 Lab_5_2_StructuredConcurrency.java</code></li>
+<li><code>java --enable-preview Lab_5_2_StructuredConcurrency</code></li>
+</ul>
+<p>Without <code>--enable-preview</code>, <code>javac</code> errors out with "preview feature is disabled by default" and the JVM refuses to load the class file. The compiler's note "uses preview features of Java SE 21" is harmless and confirms preview mode is active — leave it visible, it's the receipt.</p>
+<p>If VSCode compiles to a <code>bin</code> folder, the run command becomes <code>java -cp .\bin --enable-preview Lab_5_2_StructuredConcurrency</code>. Easiest path is to <code>cd</code> into the source folder and use plain <code>javac</code> / <code>java</code>.</p>
+</blockquote>
+<hr />
+<h2>Activity 1: ScopedValue Replacing ThreadLocal</h2>
+<p><em>The Ambiguity</em> — <code>ThreadLocal</code> has carried per-thread context in Java since 1.2. Web frameworks use it for the current user, transactional libraries use it for the active transaction, MDC libraries use it for log correlation. It works. But its API surface lets you do things that quietly break under virtual-thread scale, and the type system gives you no warning when you do.</p>
+<p><code>ThreadLocal</code> is mutable — any code that holds the reference can call <code>.set(...)</code> at any time, from any depth in the call stack. With one thread per request and a few thousand threads in the system, that's a manageable hazard. With one virtual thread per request and millions of them, the same patterns become memory and correctness landmines: <code>InheritableThreadLocal</code> copies values into every child thread; values persist for the lifetime of the underlying carrier and can leak across requests if the VT-to-task mapping isn't strict; cleanup requires explicit <code>.remove()</code> calls that are easy to forget.</p>
+<p><code>ScopedValue</code> is the Loom-era answer. Two API-shape decisions are the entire lesson. First, there is no <code>set</code> method — the <code>ScopedValue</code> type literally does not declare one. The compiler enforces immutability before any value flows. Second, the value's lifetime is bound to a lexical block: <code>ScopedValue.where(KEY, value).run(() -&gt; { ... })</code>. Inside the block, <code>KEY.get()</code> returns the value. Outside the block, <code>KEY.get()</code> throws <code>NoSuchElementException</code>. There is no analogue of "I forgot to call <code>.remove()</code>" because the binding doesn't exist after <code>run</code> returns. Both guarantees come from the API shape — the compiler enforces one, the runtime enforces the other. This activity makes both visible.</p>
+<h3>Steps</h3>
+<ol>
+<li>
+<p>Open <code>Lab_5_2_StructuredConcurrency.java</code>.</p>
+</li>
+<li>
+<p>Read the <strong>Preview-flag callout</strong> in the class Javadoc — Activities 1 and 2 both depend on <code>--enable-preview</code>. Read the Activity 1 scaffolding comment block. Note the side-by-side <code>ThreadLocal</code> vs <code>ScopedValue</code> API surface — this is the contrast each part of the activity makes concrete. Note that <code>AC1_USER</code> is declared as <code>ScopedValue.newInstance()</code> and that <code>ac1_readUserDeepInCallStack()</code> reads <code>AC1_USER.get()</code> with no parameter — this is what "implicit context" looks like.</p>
+</li>
+<li>
+<p>Locate <strong>TODO 1.1</strong>.</p>
+<p>Paste a <code>ThreadLocal&lt;String&gt;</code> field called <code>AC1_USER_TL</code> and a method <code>ac1_threadLocalDemo()</code> that demonstrates the old-way pattern: set the value to <code>"alice"</code>, read it, read it again from a deeper call frame, mutate it to <code>"bob"</code> mid-flight to show that any code can change it, then call <code>.remove()</code> for manual cleanup. Also paste the <code>ac1_readUserDeepInCallStackTL()</code> helper that mirrors <code>ac1_readUserDeepInCallStack()</code> but reads the <code>ThreadLocal</code> instead.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static final ThreadLocal&lt;String&gt; AC1_USER_TL = new ThreadLocal&lt;&gt;();
+
+private static void ac1_threadLocalDemo() {
+    AC1_USER_TL.set(&quot;alice&quot;);
+    System.out.println(&quot;    [outer]     current user: &quot; + AC1_USER_TL.get());
+    ac1_readUserDeepInCallStackTL();
+    AC1_USER_TL.set(&quot;bob&quot;);        // any code can mutate it, anywhere
+    System.out.println(&quot;    [outer]     current user: &quot; + AC1_USER_TL.get() + &quot;  &lt;-- mutated mid-flight&quot;);
+    AC1_USER_TL.remove();          // manual cleanup required to avoid leaks
+}
+
+private static void ac1_readUserDeepInCallStackTL() {
+    System.out.println(&quot;    [deep call] current user: &quot; + AC1_USER_TL.get());
+}</code></pre></div>
+
+<ol start="5">
+<li>
+<p>Locate <strong>TODO 1.2</strong>.</p>
+<p>Paste a method <code>ac1_scopedValueBroken()</code> that attempts the wrong thing — calling <code>AC1_USER.set("alice")</code> as if it were a <code>ThreadLocal</code>. The compiler will reject this. Leave the method UNCOMMENTED so the rejection happens for real.</p>
+</li>
+<li>
+<p>Paste this snippet:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-java">private static void ac1_scopedValueBroken() {
+    AC1_USER.set(&quot;alice&quot;);                                  // &lt;-- compiler rejects: no method set(String)
+    System.out.println(&quot;    current user: &quot; + AC1_USER.get());
+}</code></pre></div>
+
+<ol start="7">
+<li>
+<p>Compile with the preview flag.</p>
+<p><code>javac --enable-preview --release 21 -d .\bin .\module-05-virtual-threads\src\Lab_5_2_StructuredConcurrency.java</code></p>
+<p>The compiler should reject the <code>AC1_USER.set("alice")</code> line with:</p>
+</li>
+</ol>
+<div class="code-wrap"><pre><code class="lang-text">    error: cannot find symbol
+            AC1_USER.set(&quot;alice&quot;);
+                    ^
+      symbol:   method set(String)
+      location: variable AC1_USER of type ScopedValue&lt;String&gt;
+    ```
+
+    This is the type-level half of the lesson. There is no `set(...)` method on `ScopedValue` to find — immutability is enforced before any value flows. Read the error, then comment the entire `ac1_scopedValueBroken()` method out (or wrap its body in `/* ... */`) so the file compiles for the next step.
+
+8. Locate **TODO 1.3**.
+
+    Paste two methods. `ac1_scopedValueDemo()` does the right thing: bind `AC1_USER` to `&quot;alice&quot;` inside a `where(...).run(...)` block, read the value at the outer level, then call the deep helper to show the value flows implicitly through the call stack. `ac1_outsideScopeDemo()` reads the value *outside* any scope to show the runtime half of the lesson — `isBound()` returns false and `get()` throws `NoSuchElementException`. The import for `NoSuchElementException` should already be present at the top of the file; if your IDE removed it on save, add it back manually.
+
+9. Paste this snippet:
+</code></pre></div>
+
+<p>java
+private static void ac1_scopedValueDemo() {
+    ScopedValue.where(AC1_USER, "alice").run(() -&gt; {
+        System.out.println("    [outer]     current user: " + AC1_USER.get());
+        ac1_readUserDeepInCallStack();
+    });
+}</p>
+<p>private static void ac1_outsideScopeDemo() {
+    System.out.println("    AC1_USER.isBound() outside any scope: " + AC1_USER.isBound());
+    try {
+        String leaked = AC1_USER.get();
+        System.out.println("    leaked value: " + leaked);  // unreachable
+    } catch (NoSuchElementException e) {
+        System.out.println("    AC1_USER.get() outside scope threw: " + e.getClass().getSimpleName());
+    }
+}</p>
+<div class="code-wrap"><pre><code class="lang-text">
+10. Locate **TODO 1.4**.
+
+11. Uncomment the `activity1()` method.
+
+12. Scroll down to `main()` and uncomment `case &quot;1&quot; -&gt; activity1();`.
+
+13. Compile and run with the preview flag. Select **1**.
+
+    `javac --enable-preview --release 21 -d .\bin .\module-05-virtual-threads\src\Lab_5_2_StructuredConcurrency.java`
+    `java --enable-preview -cp .\bin Lab_5_2_StructuredConcurrency`
+
+14. Observe:
+    - **Part A** (ThreadLocal): the `[outer]` reads &quot;alice&quot;, the `[deep call]` also reads &quot;alice&quot; — the value flows through the stack via the implicit thread-local channel. Then a second `[outer]` line shows the value mutated to &quot;bob&quot; — *any* code holding the `AC1_USER_TL` reference could have done that, from any depth, with no compile-time signal. This is the &quot;any code can mutate it, anywhere&quot; hazard that ThreadLocal&#x27;s API surface allows.
+    - **Part B** (ScopedValue): the `[outer]` reads &quot;alice&quot;, the `[deep call]` reads &quot;alice&quot; — the value flows through the stack the same way the ThreadLocal version did. The functional behaviour for *reading* is identical. The difference isn&#x27;t visible in the output of Part B alone — it was visible in the compiler error you saw at step 7. There is no setter to misuse.
+    - **Part C** (lifetime boundary): outside the `where(...).run(...)` block, `AC1_USER.isBound()` returns `false` and `AC1_USER.get()` throws `NoSuchElementException`. The binding does not exist outside the lexical scope. There is no `.remove()` to forget — the runtime guarantees cleanup.
+    - The two guarantees together: the compiler refuses to let you mutate the value, and the runtime refuses to let it leak past the scope. ThreadLocal gave you neither.
+    - **Question**: With ThreadLocal, the most common production bug isn&#x27;t a logic error — it&#x27;s a forgotten `.remove()` that leaks a request-scoped value into the next request that happens to be served on the same pooled thread. Walk through the ScopedValue API and explain, mechanically, why that bug class cannot exist for `ScopedValue` regardless of whether the executor is a fixed pool, a virtual-thread-per-task executor, or anything else. What specifically is the runtime doing at the end of `run(...)` that makes the leak impossible?
+
+---
+
+## Activity 2: StructuredTaskScope — Treating N Tasks as One
+
+*The False Promise* — Lab 4.3 Activity 3 used `CompletableFuture.allOf(...)` to fan out three remote calls in parallel and wait for all of them. It worked. The composition was fluent, the throughput was good, and the code looked clean. But that pattern carries a quiet structural problem that doesn&#x27;t surface until something goes wrong: there is no relationship between the three futures beyond &quot;I happen to be waiting on all of them.&quot; If one throws, the other two keep running. If you abandon the `allOf` and bail out of the calling method, the abandoned futures are still consuming threads, still issuing HTTP calls, still holding connections. There&#x27;s no parent task that owns them — `allOf` is a *combinator*, not a *container*. The framework gave you fan-out but no boundary, no lifetime, no cancellation.
+
+`StructuredTaskScope` is the boundary. The pattern is `try (var scope = new StructuredTaskScope.ShutdownOnFailure()) { ... }`. Inside the `try`-block, you `fork` subtasks — each one runs in its own virtual thread. You then call `scope.join()` to wait for either all subtasks to finish or the first one to fail. The &quot;policy&quot; is `ShutdownOnFailure`: the moment one subtask throws, the scope shuts down and *cancels* the still-running siblings. Cancellation is real — the carrier interrupts the cancelled VTs, they stop running, they don&#x27;t waste any more time on work whose result will be discarded. The `try`-block is the lifetime; the scope is the parent; the `fork` calls are the children. This is what was missing from `CompletableFuture` composition.
+
+This activity demonstrates both halves. The happy path runs three &quot;remote calls&quot; with different durations (300ms, 600ms, 900ms) inside a `ShutdownOnFailure` scope and verifies that elapsed time tracks the longest sibling — same fan-out semantics as `allOf`. The failure path replaces the middle task with a variant that throws after 200ms and verifies that the still-running siblings are cancelled mid-flight: their final `state()` reads `UNAVAILABLE` (not `SUCCESS`, not `FAILED`), and elapsed time tracks the failure point (~200ms), not what the longest sibling would have taken (~900ms). The cancellation is the lesson.
+
+### Steps
+
+1. Read the Activity 2 scaffolding. Note the four task helpers — `ac2_fetchProfile` (300ms), `ac2_fetchOrders` (600ms), `ac2_fetchRecommendations` (900ms), and `ac2_fetchOrdersFailing` (throws at 200ms). The sleeps are stand-ins for blocking I/O against three independent backend services. The different durations are deliberate: they make sibling cancellation visible in the timing in the failure path.
+
+2. Locate **TODO 2.1**.
+
+    Paste a method `ac2_runHappyPath()` that opens a `StructuredTaskScope.ShutdownOnFailure` in a try-with-resources, forks all three of the *successful* fetch helpers, calls `scope.join()` and `scope.throwIfFailed()`, then reads each `Subtask.get()` and prints the result. Time the whole block and print the elapsed ms.
+
+3. Paste this snippet:
+</code></pre></div>
+
+<p>java
+private static void ac2_runHappyPath() throws Exception {
+    long start = System.nanoTime();
+    try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        Subtask<String> profile = scope.fork(Lab_5_2_StructuredConcurrency::ac2_fetchProfile);
+        Subtask<String> orders  = scope.fork(Lab_5_2_StructuredConcurrency::ac2_fetchOrders);
+        Subtask<String> recs    = scope.fork(Lab_5_2_StructuredConcurrency::ac2_fetchRecommendations);</p>
+<pre><code>    scope.join();
+    scope.throwIfFailed();
+
+    System.out.println("    profile: " + profile.get());
+    System.out.println("    orders : " + orders.get());
+    System.out.println("    recs   : " + recs.get());
+}
+long elapsed = (System.nanoTime() - start) / 1_000_000;
+System.out.println("    elapsed: " + elapsed + " ms");
+</code></pre>
+<p>}</p>
+<div class="code-wrap"><pre><code class="lang-text">
+4. Locate **TODO 2.2**.
+
+    Paste a method `ac2_runFailurePath()` that mirrors the happy-path structure but forks `ac2_fetchOrdersFailing` instead of `ac2_fetchOrders`. Instead of calling `subtask.get()` on each result, print each subtask&#x27;s `.state()` after `join()` returns — this is what reveals the cancellation. Wrap `scope.throwIfFailed()` in a try/catch so the failure detail can be printed without crashing the menu. Time the whole block.
+
+5. Paste this snippet:
+</code></pre></div>
+
+<p>java
+private static void ac2_runFailurePath() throws Exception {
+    long start = System.nanoTime();
+    try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        Subtask<String> profile = scope.fork(Lab_5_2_StructuredConcurrency::ac2_fetchProfile);
+        Subtask<String> orders  = scope.fork(Lab_5_2_StructuredConcurrency::ac2_fetchOrdersFailing);
+        Subtask<String> recs    = scope.fork(Lab_5_2_StructuredConcurrency::ac2_fetchRecommendations);</p>
+<pre><code>    scope.join();   // waits for all to finish OR for first failure to trigger shutdown
+
+    System.out.println("    profile state: " + profile.state());
+    System.out.println("    orders  state: " + orders.state());
+    System.out.println("    recs    state: " + recs.state());
+
+    try {
+        scope.throwIfFailed();
+    } catch (Exception e) {
+        System.out.println("    scope reported failure: "
+            + e.getClass().getSimpleName()
+            + " caused by "
+            + e.getCause().getClass().getSimpleName()
+            + ": " + e.getCause().getMessage());
+    }
+}
+long elapsed = (System.nanoTime() - start) / 1_000_000;
+System.out.println("    elapsed: " + elapsed + " ms");
+</code></pre>
+<p>}
+```</p>
+<ol start="6">
+<li>
+<p>Locate <strong>TODO 2.3</strong>.</p>
+</li>
+<li>
+<p>Uncomment the <code>activity2()</code> method.</p>
+</li>
+<li>
+<p>Scroll down to <code>main()</code> and uncomment <code>case "2" -&gt; activity2();</code>.</p>
+</li>
+<li>
+<p>Compile and run with the preview flag. Select <strong>2</strong>.</p>
+<p><code>javac --enable-preview --release 21 -d .\bin .\module-05-virtual-threads\src\Lab_5_2_StructuredConcurrency.java</code>
+<code>java --enable-preview -cp .\bin Lab_5_2_StructuredConcurrency</code></p>
+</li>
+<li>
+<p>Observe:</p>
+<ul>
+<li><strong>Happy path</strong>: elapsed is approximately 900–1000ms, give or take a few tens of milliseconds for VT spawn overhead. The longest task is 900ms (<code>recs</code>). All three ran concurrently — total wall-clock ≈ longest single task. This matches what <code>CompletableFuture.allOf(...)</code> would have produced. For successful fan-out, the structured version has the same timing profile as the unstructured one.</li>
+<li><strong>Failure path elapsed</strong>: approximately 200–300ms. The failing task threw at 200ms; the elapsed time tracks the failure point, not the longest sibling. If cancellation were <em>not</em> real, elapsed would be ≈900ms (the recs task would have run to completion before <code>join()</code> returned). The fact that it isn't is the proof that cancellation actually stopped the siblings mid-flight.</li>
+<li><strong>Failure path subtask states</strong>: <code>orders</code> reads <code>FAILED</code> — it threw, the scope captured the exception. <code>profile</code> and <code>recs</code> read <code>UNAVAILABLE</code> — they were neither successful nor failed. The scope cancelled them while they were still sleeping. <code>UNAVAILABLE</code> is the API's way of saying "this subtask never produced a result, by design." If you tried to call <code>.get()</code> on either of these, you'd get an <code>IllegalStateException</code> ("Result is unavailable or subtask did not complete successfully") — the API actively prevents you from accidentally consuming a result that doesn't exist.</li>
+<li><strong>Failure reporting</strong>: <code>scope.throwIfFailed()</code> wraps the original exception in <code>ExecutionException</code>. Unwrap with <code>.getCause()</code> to get the actual <code>RuntimeException("orders service unavailable")</code> that the failing task threw. This is the standard pattern for surfacing the underlying cause to the caller.</li>
+<li><strong>The closing-note variant</strong>: this lab uses <code>ShutdownOnFailure</code> because the demo case is "we need all three results — abort everything if any one fails." There's a sibling policy <code>StructuredTaskScope.ShutdownOnSuccess&lt;T&gt;</code> for the opposite case — "we need any one result, abort the rest as soon as the first one wins." It's the same try-with-resources structure, the same <code>fork</code>/<code>join</code> lifecycle; the only differences are the constructor and that you call <code>scope.result()</code> at the end instead of <code>scope.throwIfFailed()</code>. The classic use case is racing a primary data source against a replica and taking whichever responds first.</li>
+<li><strong>Question</strong>: In Lab 4.3 Activity 3, <code>CompletableFuture.allOf(profile, orders, recs).join()</code> would have waited the full 900ms for <code>recs</code> even when <code>orders</code> had already failed at 200ms — <em>and</em> <code>recs</code> would have continued running, holding its connection, doing its work, after the calling code had given up. Walk through what actually happens to that abandoned <code>CompletableFuture</code>: who owns it, when does it stop, what happens to its result. Then compare to what <code>StructuredTaskScope.ShutdownOnFailure</code> did to <code>recs</code> in this activity. Why is "the parent owns the children" a stronger guarantee than "the framework offers a way to compose them"?</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>Lab Complete</h2>
+<p>Both activities tell the same structural story: the <em>boundary</em> is what was missing. <code>ScopedValue</code> bounds the lifetime of a piece of context to a lexical block — the value cannot leak past <code>run(...)</code> because the runtime tears the binding down when the block exits. <code>StructuredTaskScope</code> bounds the lifetime of a group of concurrent subtasks to a try-with-resources block — the children cannot outlive the parent because the scope cancels them when the block exits. Both are answers to a generation of bugs caused by data and threads that outlived the code that created them. With virtual threads making it cheap to spawn millions of concurrent operations, having a bounded structure to put them in stops being a nicety and starts being the only way the model is tractable. The discipline isn't optional — it's how you keep the abstraction honest at scale.</p>
+<script>
+(function() {
+    var JAVA_KEYWORDS = new Set([
+        'abstract','assert','break','case','catch','class','continue','default',
+        'do','else','enum','extends','final','finally','for','goto','if',
+        'implements','import','instanceof','interface','native','new','package',
+        'private','protected','public','return','static','strictfp','super',
+        'switch','synchronized','this','throw','throws','transient','try',
+        'volatile','while','true','false','null','var','record','sealed',
+        'permits','non-sealed','yield'
+    ]);
+    var JAVA_TYPES = new Set([
+        'int','long','short','byte','char','boolean','float','double','void',
+        'String','Integer','Long','Boolean','Object','List','Map','Set',
+        'Thread','Runnable','Exception','RuntimeException','InterruptedException',
+        'AtomicInteger','AtomicLong','AtomicBoolean','AtomicReference',
+        'ConcurrentHashMap','CompletableFuture','Future','ExecutorService',
+        'Executors','System','Math'
+    ]);
+
+    function escapeHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function highlight(src) {
+        var re = /(\/\*[\s\S]*?\*\/)|(\/\/[^\n]*)|("(?:\\.|[^"\\])*")|('(?:\\.|[^'\\])*')|(@[A-Za-z_][A-Za-z0-9_]*)|(\b\d[\d_]*(?:\.\d[\d_]*)?[fFdDlL]?\b)|([A-Za-z_][A-Za-z0-9_]*)|([^A-Za-z0-9_\s]+)|(\s+)/g;
+        var out = '';
+        var m;
+        while ((m = re.exec(src)) !== null) {
+            if (m[1])      out += '<span class="tok-cmt">' + escapeHtml(m[1]) + '</span>';
+            else if (m[2]) out += '<span class="tok-cmt">' + escapeHtml(m[2]) + '</span>';
+            else if (m[3]) out += '<span class="tok-str">' + escapeHtml(m[3]) + '</span>';
+            else if (m[4]) out += '<span class="tok-str">' + escapeHtml(m[4]) + '</span>';
+            else if (m[5]) out += '<span class="tok-ann">' + escapeHtml(m[5]) + '</span>';
+            else if (m[6]) out += '<span class="tok-num">' + escapeHtml(m[6]) + '</span>';
+            else if (m[7]) {
+                if (JAVA_KEYWORDS.has(m[7]))    out += '<span class="tok-kw">' + m[7] + '</span>';
+                else if (JAVA_TYPES.has(m[7]))  out += '<span class="tok-ty">' + m[7] + '</span>';
+                else                            out += escapeHtml(m[7]);
+            }
+            else if (m[8]) out += escapeHtml(m[8]);
+            else if (m[9]) out += m[9];
+        }
+        return out;
+    }
+
+    document.querySelectorAll('pre code.lang-java, pre code.language-java').forEach(function(el) {
+        var raw = el.textContent;
+        el.setAttribute('data-raw', raw);
+        el.innerHTML = highlight(raw);
+    });
+})();
+</script>
+<script>
+(function() {
+    document.querySelectorAll('.code-wrap').forEach(function(wrap) {
+        var btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', function() {
+            var code = wrap.querySelector('pre code');
+            var text = code.getAttribute('data-raw') || code.textContent;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(showCopied).catch(fallbackCopy);
+            } else {
+                fallbackCopy();
+            }
+            function fallbackCopy() {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); showCopied(); }
+                catch (e) { btn.textContent = 'Error'; }
+                document.body.removeChild(ta);
+            }
+            function showCopied() {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 1500);
+            }
+        });
+        wrap.appendChild(btn);
+    });
+})();
+</script>
+</body>
+</html>
